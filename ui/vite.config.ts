@@ -33,6 +33,26 @@ const renameHtmlPlugin = (outDir: string, entry: string) => {
   }
 }
 
+// SPA history fallback - insert at front of middleware stack to run before Vite internals
+const spaFallbackPlugin = () => {
+  return {
+    name: 'spa-fallback',
+    configureServer(server: ViteDevServer) {
+      const handler = (req: IncomingMessage, _res: ServerResponse, next: () => void) => {
+        const url = req.url || ''
+        if (url.startsWith('/admin/api') || url.startsWith('/chat/api') || url.startsWith('/ws/')) return next()
+        if (url.includes('.') && !url.endsWith('.html')) return next()
+        if (url === '/admin' || url.startsWith('/admin/')) { req.url = '/admin.html'; return next() }
+        if (url === '/chat' || url.startsWith('/chat/')) { req.url = '/chat.html'; return next() }
+        if (url === '/') { req.url = '/admin.html'; return next() }
+        next()
+      }
+      // Insert at position 0 to run BEFORE Vite's own HTML/static middlewares
+      server.middlewares.stack.unshift({ route: '', handle: handler } as any)
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig((conf: ConfigEnv) => {
   const mode = conf.mode
@@ -95,6 +115,7 @@ export default defineConfig((conf: ConfigEnv) => {
       DefineOptions(),
       createHtmlPlugin({ template: ENV.VITE_ENTRY }),
       renameHtmlPlugin(`dist${ENV.VITE_BASE_PATH}`, ENV.VITE_ENTRY),
+      spaFallbackPlugin(),
     ],
     server: {
       cors: true,
@@ -103,20 +124,6 @@ export default defineConfig((conf: ConfigEnv) => {
       strictPort: true,
       proxy: proxyConf,
       fs: { allow: ['.'] },
-      configureServer(server: ViteDevServer) {
-        server.middlewares.use((req: IncomingMessage, _res: ServerResponse, next: () => void) => {
-          const url = req.url || ''
-          // SPA fallback: /admin/* → admin.html, /chat/* → chat.html
-          if (url === '/admin' || url.startsWith('/admin/')) {
-            req.url = '/admin.html'
-          } else if (url === '/chat' || url.startsWith('/chat/')) {
-            req.url = '/chat.html'
-          } else if (url === '/') {
-            req.url = '/admin.html'
-          }
-          next()
-        })
-      },
     },
     build: {
       outDir: `dist${ENV.VITE_BASE_PATH}`,
