@@ -202,7 +202,6 @@ def event_content(
                             application_id=manage.context.get("application_id"),
                         )
                 except Exception:
-                    # Cache write-back failure should not break the response
                     pass
         # --- End Semantic Cache Write-Back ---
     except BaseException as e:
@@ -494,6 +493,7 @@ class BaseChatStep(IChatStep):
         chat_id=None,
         chat_user_id=None,
         chat_user_type=None,
+        manage=None,
     ):
         if paragraph_list is None:
             paragraph_list = []
@@ -573,21 +573,22 @@ class BaseChatStep(IChatStep):
                 return mcp_result, True
 
             # --- Semantic Cache Check ---
-            embedding_model = self.manage.context.get('_embedding_model')
-            if embedding_model is not None and problem_text:
-                cache_hit = SemanticCacheManager.search(
-                    question_text=problem_text,
-                    application_id=agent_id,
-                    model_instance=embedding_model,
-                )
-                if cache_hit is not None:
-                    self.manage.context['_cache_hit'] = True
-                    self.manage.context['message_tokens'] = self.manage.context.get('message_tokens', 0) + cache_hit.get('message_tokens', 0)
-                    self.manage.context['answer_tokens'] = self.manage.context.get('answer_tokens', 0) + cache_hit.get('answer_tokens', 0)
-                    return iter([AIMessageChunk(content=cache_hit['answer_text'])]), False
-                else:
-                    self.manage.context['_cache_miss'] = True
-                    self.manage.context['_cache_embedding_model'] = embedding_model
+            if manage is not None:
+                embedding_model = manage.context.get('_embedding_model')
+                if embedding_model is not None and problem_text:
+                    cache_hit = SemanticCacheManager.search(
+                        question_text=problem_text,
+                        application_id=agent_id,
+                        model_instance=embedding_model,
+                    )
+                    if cache_hit is not None:
+                        manage.context['_cache_hit'] = True
+                        manage.context['message_tokens'] = manage.context.get('message_tokens', 0) + cache_hit.get('message_tokens', 0)
+                        manage.context['answer_tokens'] = manage.context.get('answer_tokens', 0) + cache_hit.get('answer_tokens', 0)
+                        return iter([AIMessageChunk(content=cache_hit['answer_text'])]), False
+                    else:
+                        manage.context['_cache_miss'] = True
+                        manage.context['_cache_embedding_model'] = embedding_model
             # --- End Semantic Cache Check ---
 
             return chat_model.stream(message_list), True
@@ -633,6 +634,7 @@ class BaseChatStep(IChatStep):
             chat_id,
             chat_user_id,
             chat_user_type,
+            manage=manage,
         )
         chat_record_id = (
             self.context.get("step_args", {}).get("chat_record_id")
