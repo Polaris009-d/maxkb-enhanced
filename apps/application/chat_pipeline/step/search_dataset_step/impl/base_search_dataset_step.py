@@ -75,9 +75,66 @@ class BaseSearchDatasetStep(ISearchDatasetStep):
                                       exclude_paragraph_id_list, True, top_n, similarity, SearchMode(search_mode))
         if embedding_list is None:
             return []
+        # --- Reranker: re-rank top-N results with Cross-Encoder or embedding fallback ---
+        embedding_list = self._apply_reranker(exec_problem_text, embedding_list, embedding_model)
+        # --- End Reranker ---
         paragraph_list = self.list_paragraph(embedding_list, vector)
         result = [self.reset_paragraph(paragraph, embedding_list) for paragraph in paragraph_list]
         return result
+
+    @staticmethod
+    def _apply_reranker(query_text: str, embedding_list: List[dict], embedding_model) -> List[dict]:
+        """Re-rank search results using Cross-Encoder or embedding fallback.
+
+        Takes top-20 results from search, re-scores each candidate
+        against the query, and returns the re-ranked top-N list.
+        """
+        if not embedding_list or len(embedding_list) <= 5:
+            return embedding_list
+
+        try:
+            from common.reranker.reranker import RerankerManager
+
+            # Fetch paragraph content for top-N candidates
+            from knowledge.models import Paragraph
+            from django.db.models import QuerySet
+
+            top_n = min(len(embedding_list), 20)
+            paragraph_ids = [e.get("paragraph_id") for e in embedding_list[:top_n] if e.get("paragraph_id")]
+            paragraphs = QuerySet(Paragraph).filter(id__in=paragraph_ids).values("id", "content", "title")
+
+            id_to_content = {
+                p["id"]: p.get("title", "") + "\n" + p.get("content", "")
+                for p in paragraphs
+            }
+
+            # Build candidates with content
+            candidates = []
+            for emb in embedding_list[:top_n]:
+                pid = emb.get("paragraph_id")
+                content = id_to_content.get(pid, "")
+                candidates.append({
+                    **emb,
+                    "content": content,
+                })
+
+            # Re-rank
+            reranked = RerankerManager.rerank(
+                query_text=query_text,
+                candidates=candidates,
+                top_k=max(5, len(embedding_list) // 4),  # Return ~25% of original count
+                embedding_model=embedding_model,
+            )
+
+            # Merge back: keep re-ranked results, append the rest unchanged
+            reranked_ids = {r.get("paragraph_id") for r in reranked}
+            remaining = [e for e in embedding_list if e.get("paragraph_id") not in reranked_ids]
+            return reranked + remaining
+        except Exception:
+            import traceback
+            from common.utils.logger import maxkb_logger
+            maxkb_logger.warning(f"Reranker failed, falling back to original order: {traceback.format_exc()}")
+            return embedding_list
 
     @staticmethod
     def reset_paragraph(paragraph: Dict, embedding_list: List) -> ParagraphPipelineModel:

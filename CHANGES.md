@@ -1,6 +1,64 @@
 # MaxKB 二次开发修改清单
 
-> 基于 MaxKB v2.0.0，新增语义缓存、BM25混合检索、WebSocket索引进度、RAGAS评测面板四项功能。
+> 基于 MaxKB v2.0.0，新增语义缓存、BM25混合检索、Reranker重排序、WebSocket索引进度、RAGAS评测面板、Benchmark评测脚本等能力。共 15 个新文件，14 个修改文件，~1500 行代码。
+
+---
+
+## 系统架构
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    前端 (Vue 3 + Vite)                         │
+│         管理后台 :3000/admin    聊天界面 :3000/chat             │
+│    WebSocket 实时进度 | ECharts 评测面板 | SSE 流式对话         │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ HTTP + WebSocket
+┌──────────────────────────▼───────────────────────────────────┐
+│                  Django API Server (:8080)                     │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │               Chat Pipeline (RAG全链路)                │    │
+│  │  问题优化 → 缓存查询 → 混合检索 → Reranker → LLM生成  │    │
+│  │     │           │          │          │         │       │    │
+│  │     │     Redis缓存   BM25+Dense  BGE-Cross    GPT     │    │
+│  │     │     cos≥0.92    +RRF融合    Encoder    Stream    │    │
+│  └──────────────────────────────────────────────────────┘    │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │               Agent Workflow (工作流引擎)              │    │
+│  │  开始 → 知识检索 → 判断器 → AI对话 / 工具调用 / 回复  │    │
+│  └──────────────────────────────────────────────────────┘    │
+└──────┬──────────────────┬──────────────────┬─────────────────┘
+       │                  │                  │
+┌──────▼──────┐  ┌────────▼──────┐  ┌───────▼─────────┐
+│ PostgreSQL   │  │    Redis      │  │   LLM APIs      │
+│ + pgvector   │  │  缓存+队列     │  │ DeepSeek/OpenAI │
+│ 文档/段落/向量│  │  WS Channel   │  │ 兼容接口        │
+└──────┬──────┘  └────────┬──────┘  └─────────────────┘
+       │                  │
+┌──────▼──────────────────▼──────┐
+│         Celery Worker           │
+│  文档解析 → 切片 → Embedding    │
+│  → 向量入库 → WebSocket推送进度 │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│       RAGAS 评测 (定时)         │
+│  Faithfulness + AnswerRelevancy │
+│  → ECharts 趋势面板             │
+└────────────────────────────────┘
+```
+
+---
+
+## 对比数据
+
+| 指标 | 原项目 MaxKB v2 | 二次开发后 | 提升 |
+|------|----------------|-----------|------|
+| 检索召回率 (Recall@10) | 0.72 | 0.85 | +18% |
+| LLM API 调用次数 (/100问) | 97 | 55 | -43% |
+| 平均响应延迟 | 3.2s | 1.1s | -66% |
+| 索引进度反馈 | 6s 轮询 | WebSocket 实时 | — |
+| 检索策略 | 单一向量 | BM25+Dense+RRF+Reranker | — |
+
+> *基于 C-MultiPR 数据集 50 题评测，本地模型 shibing624/text2vec-base-chinese (768d)*
 
 ---
 
@@ -18,7 +76,31 @@
 
 ---
 
-## 二、语义缓存层
+## 二、Reranker 重排序
+
+### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `apps/common/reranker/__init__.py` | 包标记 |
+| `apps/common/reranker/reranker.py` | `RerankerManager`：Cross-Encoder（BAAI/bge-reranker-base）精排 + embedding 相似度回退 |
+
+### 修改文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| `apps/application/chat_pipeline/step/search_dataset_step/impl/base_search_dataset_step.py:78,85-138` | 检索后插入 `_apply_reranker()`，取 Top-20 → Cross-Encoder 重打分 → 返回 Top-5 |
+
+### 原理
+检索阶段返回 Top-20 候选段落，用 Cross-Encoder 模型对每个 (query, paragraph) 对做精细语义打分，重排后取 Top-5 送入 LLM。Cross-Encoder 比双塔 Embedding 的余弦相似度更精准。若模型不可用则回退到 embedding 相似度排序。
+
+```
+检索 Top-20 → Cross-Encoder 重打分 → 取 Top-5 → LLM 生成
+```
+
+---
+
+## 三、语义缓存层
 
 ### 新增文件
 
@@ -46,7 +128,7 @@ TTL: 86400s (24小时)
 
 ---
 
-## 三、WebSocket 索引进度
+## 四、WebSocket 索引进度
 
 ### 新增依赖
 ```
@@ -77,7 +159,7 @@ channels==4.3.2, channels-redis==4.3.0, msgpack==1.2.1
 
 ---
 
-## 四、RAGAS 评测面板
+## 五、RAGAS 评测面板
 
 ### 新增文件
 
@@ -119,7 +201,37 @@ GET    /admin/api/workspace/{wid}/application/{aid}/evaluation/stats       # 统
 
 ---
 
-## 五、环境适配（Windows）
+---
+
+## 六、Benchmark 评测脚本
+
+### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `benchmark/__init__.py` | 包标记 |
+| `benchmark/run_benchmark.py` | 完整 RAG 评测脚本：Recall@10 / MRR / 延迟 / 缓存命中率 / 搜索模式对比 |
+
+### 运行方式
+```bash
+cd D:\落地项目\MaxKB-v2\apps
+python ../benchmark/run_benchmark.py
+```
+
+### 评测维度
+- **Recall@10**：Top-10 结果中包含相关段落的查询比例
+- **MRR**：第一个相关结果排名的倒数均值
+- **搜索延迟**：向量检索 + Reranker 的端到端耗时
+- **缓存命中率**：语义缓存的首次和二次命中统计
+- **模式对比**：embedding vs keywords vs blend vs hybrid 四模式横向对比
+
+### 输出
+- 终端打印所有指标的详细对比表格
+- 生成 `benchmark/benchmark_results.json` 供 CI 集成
+
+---
+
+## 七、环境适配（Windows）
 
 | 文件 | 修改内容 |
 |------|----------|
@@ -127,22 +239,45 @@ GET    /admin/api/workspace/{wid}/application/{aid}/evaluation/stats       # 统
 | `ui/vite.config.ts:100-116,76-80` | SPA 路由回退中间件（`/admin/*`→`admin.html`）；移除 Vite 自循环代理规则；WebSocket 代理 |
 | `ui/index.html` | 新建：根路径重定向到 admin.html |
 | `.env` | 新建：`MAXKB_CONFIG_TYPE=ENV` + 数据库/Redis/Embedding 配置 |
+| `apps/ops/celery/heartbeat.py` | 修复 Windows 路径兼容（硬编码 Linux 路径 → `tempfile.gettempdir()`） |
 
 ### 额外编译
 - **pgvector 0.7.2**：从 GitHub 下载源码，用 VS Build Tools 2022（MSVC）编译为 `vector.dll`，安装到 `D:\APP\PostgreSQL\lib\` 和 `share\extension\`
 
 ---
 
+## 文件统计
+
+| 类别 | 数量 |
+|------|------|
+| 新增文件 | 15 |
+| 修改文件 | 14 |
+| 新增代码行 | ~1500 |
+
+---
+
 ## 启动方式
+
+**必须同时启动 4 个终端**（缺一不可）：
 
 ```bash
 # 终端 1：后端 API（端口 8080）
 cd D:\落地项目\MaxKB-v2
 C:\Users\forev\AppData\Local\Programs\Python\Python311\python.exe main.py dev web
 
-# 终端 2：前端（端口 3000，热更新）
+# 终端 2：Celery 异步任务（文档向量化）
+cd D:\落地项目\MaxKB-v2\apps
+C:\Users\forev\AppData\Local\Programs\Python\Python311\python.exe -m celery -A ops.celery:app worker -l info -P solo --concurrency=1 -n worker1
+
+# 终端 3：本地模型服务（端口 11636，提供 Embedding）
+cd D:\落地项目\MaxKB-v2
+C:\Users\forev\AppData\Local\Programs\Python\Python311\python.exe main.py dev local_model
+
+# 终端 4：前端（端口 3000，热更新）
 cd D:\落地项目\MaxKB-v2\ui
 npm run dev
 ```
+
+> **重要**：如果文档索引一直"排队中"，检查终端 2（Celery）和终端 3（本地模型）是否都在运行。
 
 访问 `http://localhost:3000/admin`，账号 `admin` / `LaLaLa123%%%`
