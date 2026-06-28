@@ -145,4 +145,4 @@ cd D:\落地项目\MaxKB-v2\ui
 npm run dev
 ```
 
-访问 `http://localhost:3000/admin`，账号 `admin` / `MaxKB@123..`
+访问 `http://localhost:3000/admin`，账号 `admin` / `LaLaLa123%%%`
