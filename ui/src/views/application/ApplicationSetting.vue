@@ -1177,14 +1177,27 @@ const openLongTermParamSettingDialog = () => {
   }
 }
 
-const openGeneratePromptDialog = () => {
+const openGeneratePromptDialog = (target: string = 'system') => {
   if (applicationForm.value.model_id) {
+    generateTarget.value = target
     GeneratePromptDialogRef.value?.open(applicationForm.value.model_id, id)
   }
 }
 
+const generateTarget = ref('system')
 const replace = (v: any) => {
-  applicationForm.value.model_setting.system = v
+  if (generateTarget.value === 'system') {
+    applicationForm.value.model_setting.system = v
+    applicationForm.value = { ...applicationForm.value }
+  } else if (generateTarget.value === 'no_references') {
+    applicationForm.value.model_setting.no_references_prompt = v
+    applicationForm.value = { ...applicationForm.value }
+  } else if (generateTarget.value === 'prologue') {
+    applicationForm.value.prologue = v
+  } else if (generateTarget.value === 'references') {
+    applicationForm.value.model_setting.prompt = v
+    applicationForm.value = { ...applicationForm.value }
+  }
 }
 
 const openReasoningParamSettingDialog = () => {

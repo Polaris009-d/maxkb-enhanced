@@ -248,9 +248,12 @@ class ApplicationCreateSerializer(serializers.Serializer):
                 prologue="",
                 dialogue_number=0,
                 user_id=user_id,
-                model_id=None,
+                model_id=application.get("model_id") or (str(Model.objects.filter(model_type="LLM").first().id) if Model.objects.filter(model_type="LLM").exists() else None),
                 knowledge_setting={},
-                model_setting={},
+                model_setting=application.get("model_setting") or (
+                    {"model_id": str(Model.objects.filter(model_type="LLM").first().id), "max_tokens": 2048, "temperature": 0.7}
+                    if Model.objects.filter(model_type="LLM").exists() else {}
+                ),
                 problem_optimization=False,
                 type=ApplicationTypeChoices.WORK_FLOW,
                 stt_model_enable=application.get("stt_model_enable", False),
