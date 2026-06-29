@@ -7,12 +7,12 @@ import time
 import django
 from django.core import management
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-APP_DIR = os.path.join(BASE_DIR, 'apps')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # 项目根目录 D:\落地项目\MaxKB-v2
+APP_DIR = os.path.join(BASE_DIR, 'apps') # Django 应用目录
 
-os.chdir(BASE_DIR)
-sys.path.insert(0, APP_DIR)
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "maxkb.settings")
+os.chdir(BASE_DIR) # 切工作目录
+sys.path.insert(0, APP_DIR) # 把 apps/ 加入 Python 搜索路径
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "maxkb.settings")  # 指定 Django 配置文件设置环境变量 DJANGO_SETTINGS_MODULE，值为 maxkb.settings
 
 
 def collect_static():
@@ -41,25 +41,25 @@ def perform_db_migrate():
     retry_interval = 5  # seconds
     for attempt in range(1, max_retries + 1):
         try:
-            management.call_command('migrate')
+            management.call_command('migrate') # 发起迁移尝试，把模型变更同步到数据库表结构。
             return
-        except Exception as e:
+        except Exception as e: # 捕获异常
             err_msg = str(e)
             # 判断是否为数据库仍在启动中（崩溃恢复场景）
             is_db_starting = (
-                'the database system is starting up' in err_msg
-                or 'starting up' in err_msg
-                or 'Connection refused' in err_msg
+                'the database system is starting up' in err_msg # PostgreSQL 正在恢复 WAL 日志（最核心的崩溃恢复场景）
+                or 'starting up' in err_msg   # 更宽泛的匹配，防止错误文本有细微差异
+                or 'Connection refused' in err_msg   # 极端情况下，端口还没来得及完全握手
             )
             if is_db_starting and attempt < max_retries:
                 logging.warning(
                     f'Database is not ready yet (attempt {attempt}/{max_retries}), '
                     f'retrying in {retry_interval}s... Error: {err_msg}'
-                )
+                )   # 如果重试次数没到（最多 10 次，即容忍最多 50 秒的数据库恢复时间），就睡 5 秒再试
                 time.sleep(retry_interval)
             else:
                 logging.error('Perform migrate failed, exit', exc_info=True)
-                sys.exit(11)
+                sys.exit(11)  # 如果超过了重试次数，或者报错不是“数据库启动中”，直接调用 sys.exit(11) 终止整个 Python 进程
 
 
 def start_services():
