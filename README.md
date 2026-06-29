@@ -328,37 +328,7 @@ GET    /admin/api/workspace/{wid}/application/{aid}/evaluation/stats       # 统
 
 ---
 
-## 六、Agent 工具调用
-
-### 新增数据
-
-| 项目 | 说明 |
-|------|------|
-| 校园助手工具集 | 自定义 Agent 工具：`campus_calendar()` 校历查询、`gpa_calculator()` 绩点计算、`dorm_repair()` 宿舍报修 |
-
-### 体现方式
-
-1. **前端工作流可视化**：在应用的工作流编辑器中，可拖入「校园助手工具集」节点
-2. **Agent 判断器路由**：工作流中的条件节点根据用户意图自动路由到不同工具：
-   - "查校历" → `campus_calendar()`
-   - "算绩点" → `gpa_calculator()`
-   - "宿舍坏了" → `dorm_repair()`
-   - 其他 → 走知识库检索 → LLM 回答
-3. **Python 沙箱执行**：工具代码在 MaxKB 的 Celery 沙箱中安全执行
-
-### 架构体现
-
-```
-用户提问 → Agent 判断器
-  ├─ 知识库问题 → 混合检索 → Reranker → LLM
-  ├─ 校历查询 → campus_calendar() → 直接回复
-  ├─ 绩点计算 → gpa_calculator() → 直接回复
-  └─ 宿舍报修 → dorm_repair() → 直接回复
-```
-
----
-
-## 七、Benchmark 评测脚本
+## 六、Benchmark 评测脚本
 
 ### 新增文件
 
@@ -386,7 +356,7 @@ python ../benchmark/run_benchmark.py
 
 ---
 
-## 八、环境适配（Windows）
+## 七、环境适配（Windows）
 
 | 文件 | 修改内容 |
 |------|----------|
