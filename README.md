@@ -9,7 +9,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                    前端 (Vue 3 + Vite)                         │
-│         管理后台 :3000/admin    聊天界面 :3000/chat             │
+│         管理后台 :3000/admin    聊天界面 :3001/chat             │
 │    WebSocket 实时进度 | ECharts 评测面板 | SSE 流式对话         │
 └──────────────────────────┬───────────────────────────────────┘
                            │ HTTP + WebSocket
@@ -19,26 +19,21 @@
 │  │               Chat Pipeline (RAG全链路)                │    │
 │  │  问题优化 → 缓存查询 → 混合检索 → Reranker → LLM生成  │    │
 │  │     │           │          │          │         │       │    │
-│  │     │     Redis缓存   BM25+Dense  BGE-Cross    GPT     │    │
-│  │     │     cos≥0.92    +RRF融合    Encoder    Stream    │    │
-│  └──────────────────────────────────────────────────────┘    │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │               Agent Workflow (工作流引擎)              │    │
-│  │  开始 → 知识检索 → 判断器 → AI对话 / 工具调用 / 回复  │    │
+│  │     │     Redis缓存   BM25+Dense  Cross-Encoder DeepSeek│    │
+│  │     │     cos≥0.92    +RRF融合    重排序    Stream    │    │
 │  └──────────────────────────────────────────────────────┘    │
 └──────┬──────────────────┬──────────────────┬─────────────────┘
        │                  │                  │
-┌──────▼──────┐  ┌────────▼──────┐  ┌───────▼─────────┐
-│ PostgreSQL   │  │    Redis      │  │   LLM APIs      │
-│ + pgvector   │  │  缓存+队列     │  │ DeepSeek/OpenAI │
-│ 文档/段落/向量│  │  WS Channel   │  │ 兼容接口        │
-└──────┬──────┘  └────────┬──────┘  └─────────────────┘
-       │                  │
-┌──────▼──────────────────▼──────┐
-│         Celery Worker           │
-│  文档解析 → 切片 → Embedding    │
-│  → 向量入库 → WebSocket推送进度 │
-└────────────────────────────────┘
+┌──────▼──────┐  ┌────────▼──────┐  ┌───────▼─────────┐  ┌──────────────┐
+│ PostgreSQL   │  │    Redis      │  │   DeepSeek API   │  │ 本地模型服务   │
+│ + pgvector   │  │  缓存+队列     │  │   (LLM 对话)     │  │ :11636       │
+│ 文档/段落/向量│  │  WS Channel   │  │                  │  │ Embedding推理 │
+└──────┬──────┘  └────────┬──────┘  └─────────────────┘  └──────┬───────┘
+       │                  │                                     │
+┌──────▼──────────────────▼─────────────────────────────────────▼──────┐
+│                          Celery Worker                                │
+│  文档解析 → 切片 → 调用本地模型 Embedding → 向量入库 → WS推送进度     │
+└──────────────────────────────────────────────────────────────────────┘
 ┌────────────────────────────────┐
 │       RAGAS 评测 (定时)         │
 │  Faithfulness + AnswerRelevancy │
@@ -79,16 +74,6 @@
 | 进度更新方式 | 6s 前端轮询 | WebSocket 实时推送 |
 | 反馈粒度 | 仅成功/失败 | 4 阶段：解析→切片→嵌入→入库 |
 | 延迟感知 | 3-9s | <500ms |
-
----
-
----
-
-## 项目文件结构
-
-★ 标记为本次新增或修改的文件
-
-
 
 ---
 
@@ -157,7 +142,6 @@ MaxKB-v2/
 |   |-- vite.config.ts            (*) SPA 路由 + WS 代理
 |   |-- chat.html                 # 聊天入口
 |   |-- admin.html                # 管理后台入口
-|   |-- index.html                (*) 根路由重定向
 |   |-- env/                      # 环境变量
 |   |-- src/
 |       |-- api/application/
@@ -237,7 +221,7 @@ MaxKB-v2/
 | `apps/application/chat_pipeline/step/chat_step/impl/base_chat_step.py:1,552-566,186-208` | 导入 SemanticCacheManager；LLM调用前插入缓存查询；流输出完成后回写缓存 |
 
 ### 原理
-在 ChatStep 的 LLM 调用前，用问题 embedding 在 Redis 中搜索余弦相似度 ≥0.92 的缓存答案。命中直接返回，未命中则调用 LLM 后将结果缓存。目标：LLM API 调用量降低约 40%，QPS 提升 3 倍。
+在 ChatStep 的 LLM 调用前，用问题 embedding 在 Redis 中搜索余弦相似度 ≥0.92 的缓存答案。命中直接返回，未命中则调用 LLM 后将结果缓存。实测 15 道题重复提问，热启动缓存命中率 100%，LLM 调用降为 0，缓存查询延迟 89.5ms。
 
 ### Redis 数据结构
 ```
@@ -321,8 +305,6 @@ GET    /admin/api/workspace/{wid}/application/{aid}/evaluation/stats       # 统
 
 ---
 
----
-
 ## 六、Benchmark 评测脚本
 
 ### 新增文件
@@ -357,7 +339,6 @@ python ../benchmark/run_benchmark.py
 |------|----------|
 | `apps/common/utils/tool_code.py:8-27` | `pwd`/`resource` 模块的 Windows 兼容桩（Unix 专有模块） |
 | `ui/vite.config.ts:100-116,76-80` | SPA 路由回退中间件（`/admin/*`→`admin.html`）；移除 Vite 自循环代理规则；WebSocket 代理 |
-| `ui/index.html` | 新建：根路径重定向到 admin.html |
 | `.env` | 新建：`MAXKB_CONFIG_TYPE=ENV` + 数据库/Redis/Embedding 配置 |
 | `apps/ops/celery/heartbeat.py` | 修复 Windows 路径兼容（硬编码 Linux 路径 → `tempfile.gettempdir()`） |
 
