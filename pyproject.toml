@@ -63,7 +63,9 @@ dependencies = [
     "jsonpath-ng==1.8.0",
     "markdownify==1.2.2",
     "polib==1.2.0",
-    "cryptography==46.0.7"
+    "cryptography==46.0.7",
+    "channels==4.3.2",
+    "channels-redis==4.3.0",
 ]
 
 [tool.uv]
