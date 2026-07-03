@@ -113,6 +113,6 @@ def to_ts_vector(text: str, user_words: List[str] = None):
 
 def to_query(text: str, user_words: List[str] = None):
     tokenizer = _build_tokenizer(user_words) if user_words else jieba
-    extract_tags = tokenizer.lcut(text, cut_all=True)
-    result = " ".join(extract_tags)
+    extract_tags = tokenizer.lcut(text, cut_all=False)
+    result = "|".join(extract_tags)
     return result
