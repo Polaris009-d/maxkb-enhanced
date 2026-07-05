@@ -4,9 +4,13 @@ RUN pip3 install --target=/opt/py3/lib/python3.11/site-packages \
 RUN mkdir -p /opt/maxkb-app/tmp \
     /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/credential \
     /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/model \
-    /opt/maxkb-app/apps/models_provider/impl/azure_model_provider/icon && \
+    /opt/maxkb-app/apps/models_provider/impl/azure_model_provider/icon \
+    /opt/maxkb-app/apps/models_provider/impl/wenxin_model_provider/icon \
+    /opt/maxkb-app/apps/models_provider/impl/kimi_model_provider/icon \
+    /opt/maxkb-app/apps/models_provider/impl/minimax_model_provider/icon \
+    /opt/maxkb-app/apps/models_provider/impl/regolo_model_provider/icon && \
     touch /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/credential/stt.py && \
-    echo -e "class TencentSTTModel: pass\nclass TencentSpeechToText: pass" > /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/model/stt.py && \
-    touch /opt/maxkb-app/apps/models_provider/impl/azure_model_provider/icon/azure_icon_svg
+    echo -e "class TencentSTTModel: pass\nclass TencentSpeechToText: pass" > /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/model/stt.py
 COPY ui/dist/admin /opt/maxkb-app/ui/dist/admin
-COPY apps/models_provider/impl/*/icon/* /opt/maxkb-app/apps/models_provider/impl/
+# Copy all provider icon files
+COPY apps/models_provider/impl/ /opt/maxkb-app/apps/models_provider/impl/
