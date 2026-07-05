@@ -19,7 +19,7 @@ const renameHtmlPlugin = (outDir: string, entry: string) => {
   return {
     name: 'rename-html',
     closeBundle: () => {
-      const buildDir = path.resolve(__dirname, outDir)
+      const buildDir = path.resolve(outDir)
       const oldFile = path.join(buildDir, entry)
       const newFile = path.join(buildDir, 'index.html')
 
