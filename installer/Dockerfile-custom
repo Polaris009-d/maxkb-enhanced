@@ -1,16 +1,38 @@
-FROM 1panel/maxkb:latest
-RUN pip3 install --target=/opt/py3/lib/python3.11/site-packages \
-    channels==4.3.2 channels-redis==4.3.0 zhipuai -i https://pypi.tuna.tsinghua.edu.cn/simple
-RUN mkdir -p /opt/maxkb-app/tmp \
-    /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/credential \
-    /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/model \
-    /opt/maxkb-app/apps/models_provider/impl/azure_model_provider/icon \
-    /opt/maxkb-app/apps/models_provider/impl/wenxin_model_provider/icon \
-    /opt/maxkb-app/apps/models_provider/impl/kimi_model_provider/icon \
-    /opt/maxkb-app/apps/models_provider/impl/minimax_model_provider/icon \
-    /opt/maxkb-app/apps/models_provider/impl/regolo_model_provider/icon && \
-    touch /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/credential/stt.py && \
-    echo -e "class TencentSTTModel: pass\nclass TencentSpeechToText: pass" > /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/model/stt.py
-COPY ui/dist/admin /opt/maxkb-app/ui/dist/admin
-# Copy all provider icon files
-COPY apps/models_provider/impl/ /opt/maxkb-app/apps/models_provider/impl/
+FROM python:3.11-slim
+
+# System deps: PG17 + Redis + pgvector + build tools
+RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg lsb-release gcc g++ make libffi-dev redis-server && \
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pg-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/pg-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list && \
+    apt-get update && apt-get install -y --no-install-recommends postgresql-17 postgresql-17-pgvector && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Configure PostgreSQL
+RUN pg_ctlcluster 17 main start 2>/dev/null; su - postgres -c "psql -c \"ALTER USER postgres PASSWORD 'Password123@maxkb';\"" 2>/dev/null; su - postgres -c "createdb maxkb 2>/dev/null" 2>/dev/null; true
+RUN echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/17/main/pg_hba.conf && echo "listen_addresses='*'" >> /etc/postgresql/17/main/postgresql.conf
+
+# Configure Redis
+RUN sed -i 's/protected-mode yes/protected-mode no/' /etc/redis/redis.conf
+
+# Install Python deps
+WORKDIR /app
+COPY pyproject.toml .
+RUN pip install --no-cache-dir -r pyproject.toml -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip install --no-cache-dir channels==4.3.2 channels-redis==4.3.0 zhipuai -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# Copy project
+COPY .env /app/.env
+COPY apps/ /app/apps/
+COPY ui/dist/ /app/ui/dist/
+COPY main.py /app/
+COPY installer/ /app/installer/
+
+# Startup
+RUN echo '#!/bin/bash\nset -e\npg_ctlcluster 17 main start\nredis-server --daemonize yes\nsleep 3\ncd /app\nexport PYTHONPATH=/app/apps\nexport DJANGO_SETTINGS_MODULE=maxkb.settings\npython -c "import django; django.setup()" 2>/dev/null || python main.py upgrade_db\ngunicorn --bind 0.0.0.0:8080 --workers 2 --timeout 120 maxkb.wsgi:application' > /app/start.sh && chmod +x /app/start.sh
+
+ENV PYTHONPATH=/app/apps DJANGO_SETTINGS_MODULE=maxkb.settings
+ENV MAXKB_DB_NAME=maxkb MAXKB_DB_HOST=127.0.0.1 MAXKB_DB_PORT=5432 MAXKB_DB_USER=postgres MAXKB_DB_PASSWORD=Password123@maxkb
+ENV MAXKB_REDIS_HOST=127.0.0.1 MAXKB_REDIS_PORT=6379 MAXKB_REDIS_PASSWORD=
+
+EXPOSE 8080
+CMD ["/app/start.sh"]
