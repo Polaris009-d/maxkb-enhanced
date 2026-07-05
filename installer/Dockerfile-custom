@@ -1,0 +1,15 @@
+FROM 1panel/maxkb:latest
+
+# 安装缺失依赖
+RUN /opt/py3/bin/pip install --target=/opt/py3/lib/python3.11/site-packages \
+    channels==4.3.2 channels-redis==4.3.0 zhipuai -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 修复缺失文件
+RUN mkdir -p /opt/maxkb-app/tmp && \
+    mkdir -p /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/credential && \
+    mkdir -p /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/model && \
+    touch /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/credential/stt.py && \
+    echo -e "class TencentSTTModel: pass\nclass TencentSpeechToText: pass" > /opt/maxkb-app/apps/models_provider/impl/tencent_model_provider/model/stt.py
+
+# 替换前端为本地构建版本
+COPY ui/dist/admin /opt/maxkb-app/ui/dist/admin
