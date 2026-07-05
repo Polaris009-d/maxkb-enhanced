@@ -5,33 +5,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 import DefineOptions from 'unplugin-vue-define-options/vite'
-import { existsSync, unlinkSync, renameSync } from 'node:fs'
-import path from 'node:path'
 import { createHtmlPlugin } from 'vite-plugin-html'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-
 const envDir = './env'
-
-// Custom plugin: rename entry HTML to index.html after build
-const renameHtmlPlugin = (outDir: string, entry: string) => {
-  return {
-    name: 'rename-html',
-    closeBundle: () => {
-      const buildDir = path.resolve(outDir)
-      const oldFile = path.join(buildDir, entry)
-      const newFile = path.join(buildDir, 'index.html')
-
-      if (existsSync(oldFile)) {
-        if (existsSync(newFile)) {
-          unlinkSync(newFile)
-        }
-        renameSync(oldFile, newFile)
-      }
-    },
-  }
-}
 
 // SPA history fallback - insert at front of middleware stack to run before Vite internals
 const spaFallbackPlugin = () => {
@@ -114,7 +90,6 @@ export default defineConfig((conf: ConfigEnv) => {
       vueJsx(),
       DefineOptions(),
       createHtmlPlugin({ template: ENV.VITE_ENTRY }),
-      renameHtmlPlugin(`dist${ENV.VITE_BASE_PATH}`, ENV.VITE_ENTRY),
       spaFallbackPlugin(),
     ],
     server: {
