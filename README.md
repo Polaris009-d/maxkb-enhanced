@@ -389,3 +389,31 @@ npm run chat
 
 - 管理后台：`http://localhost:3000/admin`，账号 `admin` / `LaLaLa123%%%`
 - 聊天页面：`http://localhost:3001/chat/{access_token}`
+
+---
+
+## Docker 一键部署
+
+```bash
+# 1. 拉取代码
+git clone https://ghfast.top/https://github.com/Polaris009-d/maxkb-enhanced.git ~/maxkb-enhanced
+
+# 2. 构建镜像
+cd ~/maxkb-enhanced
+docker build -f installer/Dockerfile-custom -t maxkb-enhanced .
+
+# 3. 启动容器
+docker run -d --name maxkb -p 8080:8080 --restart=always \
+  -e MAXKB_DEBUG= \
+  -v ~/maxkb-enhanced/apps:/opt/maxkb-app/apps \
+  maxkb-enhanced
+
+# 4. 导入数据（需要数据备份文件）
+docker exec maxkb psql -U root -d maxkb -c "CREATE EXTENSION IF NOT EXISTS vector;"
+docker exec -i maxkb pg_restore -U root -d maxkb --data-only --no-owner --disable-triggers < maxkb_data.dump
+
+# 5. 访问
+# http://服务器IP:8080/admin   账号 admin / 密码 LaLaLa123%%%
+```
+
+> Dockerfile 位于 `installer/Dockerfile-custom`，基于 `1panel/maxkb` 镜像，预装了 channels、Reranker、语义缓存等全部依赖，COPY 方式部署代码。
