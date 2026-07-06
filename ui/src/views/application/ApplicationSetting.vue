@@ -78,7 +78,6 @@
                         type="primary"
                         link
                         @click="openAIParamSettingDialog"
-                        :disabled="!applicationForm.model_id"
                       >
                         <AppIcon iconName="app-setting" class="mr-4"></AppIcon>
                         {{ $t('common.paramSetting') }}
@@ -238,7 +237,6 @@
                     </ModelSelect>
                     <el-button
                       class="ml-8"
-                      :disabled="!applicationForm.long_term_model_id"
                       @click="openLongTermParamSettingDialog"
                       @refreshForm="refreshParam"
                     >
@@ -1158,9 +1156,10 @@ const long_term_model_change = (model_id?: string) => {
 }
 
 const openAIParamSettingDialog = () => {
-  if (applicationForm.value.model_id) {
+  const modelId = applicationForm.value.model_id || applicationForm.value.model_setting?.model_id
+  if (modelId) {
     AIModeParamSettingDialogRef.value?.open(
-      applicationForm.value.model_id,
+      modelId,
       id,
       applicationForm.value.model_params_setting,
     )
@@ -1168,9 +1167,10 @@ const openAIParamSettingDialog = () => {
 }
 
 const openLongTermParamSettingDialog = () => {
-  if (applicationForm.value.long_term_model_id) {
+  const modelId = applicationForm.value.long_term_model_id || applicationForm.value.model_setting?.model_id
+  if (modelId) {
     LongTermModeParamSettingDialogRef.value?.open(
-      applicationForm.value.long_term_model_id,
+      modelId,
       id,
       applicationForm.value.long_term_model_params_setting,
     )
