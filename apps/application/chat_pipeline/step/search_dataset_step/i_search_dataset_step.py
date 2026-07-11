@@ -41,8 +41,8 @@ class ISearchDatasetStep(IBaseChatPipelineStep):
         similarity = serializers.FloatField(required=True, max_value=1, min_value=0,
                                             label=_("Similarity"))
         search_mode = serializers.CharField(required=True, validators=[
-            validators.RegexValidator(regex=re.compile("^embedding|keywords|blend$"),
-                                      message=_("The type only supports embedding|keywords|blend"), code=500)
+            validators.RegexValidator(regex=re.compile("^embedding|keywords|blend|hybrid$"),
+                                      message=_("The type only supports embedding|keywords|blend|hybrid"), code=500)
         ], label=_("Retrieval Mode"))
         workspace_id = serializers.CharField(required=True, label=_("Workspace ID"))
 

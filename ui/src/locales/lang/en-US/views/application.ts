@@ -171,6 +171,9 @@ After disabling, the long-term memory of the conversation users will be cleared,
     hybridSearch: 'Hybrid Search',
     hybridSearchTooltip:
       'Hybrid search is a retrieval method based on both vector and text similarity, suitable for medium data volumes in the knowledge.',
+    rrfHybridSearch: 'RRF Hybrid Search',
+    rrfHybridSearchTooltip:
+      'RRF Hybrid Search uses Reciprocal Rank Fusion (RRF, k=60) to merge vector and full-text search results via dual-channel recall, suitable for knowledge bases requiring precise keyword matching.',
     similarityThreshold: 'Similarity higher than',
     similarityTooltip: 'The higher the similarity, the stronger the correlation.',
     topReferences: 'Top N Segments',

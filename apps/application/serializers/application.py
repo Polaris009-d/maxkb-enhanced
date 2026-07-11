@@ -142,8 +142,8 @@ class KnowledgeSettingSerializer(serializers.Serializer):
         required=True,
         validators=[
             validators.RegexValidator(
-                regex=re.compile("^embedding|keywords|blend$"),
-                message=_("The type only supports embedding|keywords|blend"),
+                regex=re.compile("^embedding|keywords|blend|hybrid$"),
+                message=_("The type only supports embedding|keywords|blend|hybrid"),
                 code=500,
             )
         ],

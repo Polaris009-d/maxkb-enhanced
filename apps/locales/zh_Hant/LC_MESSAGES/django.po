@@ -343,8 +343,8 @@ msgstr "相似度"
 #: apps/application/serializers/application.py:91
 #: apps/knowledge/serializers/knowledge.py:100
 #: apps/knowledge/serializers/knowledge.py:643
-msgid "The type only supports embedding|keywords|blend"
-msgstr "類型僅支持嵌入|關鍵字|混合"
+msgid "The type only supports embedding|keywords|blend|hybrid"
+msgstr "類型僅支持embedding|keywords|blend|hybrid"
 
 #: apps/application/chat_pipeline/step/search_dataset_step/i_search_dataset_step.py:46
 #: apps/application/flow/step_node/search_dataset_node/i_search_dataset_node.py:31

@@ -162,8 +162,8 @@ class HitTestSerializer(serializers.Serializer):
         label=_("search mode"),
         validators=[
             validators.RegexValidator(
-                regex=re.compile("^embedding|keywords|blend$"),
-                message=_("The type only supports embedding|keywords|blend"),
+                regex=re.compile("^embedding|keywords|blend|hybrid$"),
+                message=_("The type only supports embedding|keywords|blend|hybrid"),
                 code=500,
             )
         ],
@@ -1365,8 +1365,8 @@ class KnowledgeSerializer(serializers.Serializer):
             label=_("search mode"),
             validators=[
                 validators.RegexValidator(
-                    regex=re.compile("^embedding|keywords|blend$"),
-                    message=_("The type only supports embedding|keywords|blend"),
+                    regex=re.compile("^embedding|keywords|blend|hybrid$"),
+                    message=_("The type only supports embedding|keywords|blend|hybrid"),
                     code=500,
                 )
             ],

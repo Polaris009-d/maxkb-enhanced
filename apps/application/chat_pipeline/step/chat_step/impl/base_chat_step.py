@@ -201,8 +201,8 @@ def event_content(
                             embedding=embedding,
                             application_id=manage.context.get("application_id"),
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    maxkb_logger.warning(f"Semantic cache write-back failed (stream): {e}")
         # --- End Semantic Cache Write-Back ---
     except BaseException as e:
         if isinstance(e, GeneratorExit):
@@ -244,6 +244,36 @@ def event_content(
 
 
 class BaseChatStep(IChatStep):
+    @staticmethod
+    def _resolve_embedding_model(manage, workspace_id):
+        """Get embedding model from pipeline context, or auto-detect one.
+
+        If BaseSearchDatasetStep already set _embedding_model (app has knowledge
+        bases), return it directly. Otherwise, query the database for any active
+        EMBEDDING model and instantiate it as a fallback.
+        """
+        embedding_model = manage.context.get('_embedding_model')
+        if embedding_model is not None:
+            return embedding_model
+        try:
+            from models_provider.models import Model as EmbeddingModel, Status
+            emb_model = QuerySet(EmbeddingModel).filter(
+                model_type='EMBEDDING', status=Status.SUCCESS, workspace_id=workspace_id
+            ).first()
+            if emb_model is None:
+                emb_model = QuerySet(EmbeddingModel).filter(
+                    model_type='EMBEDDING', status=Status.SUCCESS
+                ).first()
+            if emb_model is not None:
+                embedding_model = get_model_instance_by_model_workspace_id(
+                    str(emb_model.id), workspace_id
+                )
+                manage.context['_embedding_model'] = embedding_model
+                return embedding_model
+        except Exception:
+            pass
+        return None
+
     def execute(
         self,
         message_list: List[BaseMessage],
@@ -573,22 +603,36 @@ class BaseChatStep(IChatStep):
                 return mcp_result, True
 
             # --- Semantic Cache Check ---
-            if manage is not None:
-                embedding_model = manage.context.get('_embedding_model')
-                if embedding_model is not None and problem_text:
-                    cache_hit = SemanticCacheManager.search(
-                        question_text=problem_text,
-                        application_id=agent_id,
-                        model_instance=embedding_model,
-                    )
-                    if cache_hit is not None:
-                        manage.context['_cache_hit'] = True
-                        manage.context['message_tokens'] = manage.context.get('message_tokens', 0) + cache_hit.get('message_tokens', 0)
-                        manage.context['answer_tokens'] = manage.context.get('answer_tokens', 0) + cache_hit.get('answer_tokens', 0)
-                        return iter([AIMessageChunk(content=cache_hit['answer_text'])]), False
+            print(f"[SEMANTIC_CACHE_DEBUG] manage={manage is not None}, problem_text={bool(problem_text)}, "
+                  f"agent_id={agent_id}, workspace_id={workspace_id}")
+            if manage is not None and problem_text:
+                try:
+                    embedding_model = BaseChatStep._resolve_embedding_model(manage, workspace_id)
+                    print(f"[SEMANTIC_CACHE_DEBUG] embedding_model={'FOUND' if embedding_model is not None else 'NONE'}")
+                    if embedding_model is not None:
+                        cache_hit = SemanticCacheManager.search(
+                            question_text=problem_text,
+                            application_id=agent_id,
+                            model_instance=embedding_model,
+                        )
+                        print(f"[SEMANTIC_CACHE_DEBUG] search_result={'HIT: sim=' + str(cache_hit.get('similarity','?')) if cache_hit else 'MISS'}")
+                        if cache_hit is not None:
+                            manage.context['_cache_hit'] = True
+                            manage.context['message_tokens'] = 0
+                            manage.context['answer_tokens'] = 0
+                            return iter([AIMessageChunk(content=cache_hit['answer_text'])]), False
+                        else:
+                            manage.context['_cache_miss'] = True
+                            manage.context['_cache_embedding_model'] = embedding_model
                     else:
-                        manage.context['_cache_miss'] = True
-                        manage.context['_cache_embedding_model'] = embedding_model
+                        maxkb_logger.warning(
+                            f"Semantic cache SKIPPED: no embedding model available "
+                            f"(app={agent_id}, workspace={workspace_id}). "
+                            f"Check that the application has a knowledge base with an embedding model, "
+                            f"or add an EMBEDDING model in the workspace."
+                        )
+                except Exception as e:
+                    maxkb_logger.warning(f"Semantic cache lookup failed, continuing without cache: {e}")
             # --- End Semantic Cache Check ---
 
             return chat_model.stream(message_list), True
@@ -682,6 +726,7 @@ class BaseChatStep(IChatStep):
         mcp_output_enable=True,
         application_id=None,
         chat_id=None,
+        manage=None,
     ):
         if paragraph_list is None:
             paragraph_list = []
@@ -727,6 +772,29 @@ class BaseChatStep(IChatStep):
             )
             if mcp_result:
                 return mcp_result, True
+
+            # --- Semantic Cache Check ---
+            if manage is not None and problem_text:
+                try:
+                    embedding_model = BaseChatStep._resolve_embedding_model(manage, workspace_id)
+                    if embedding_model is not None:
+                        cache_hit = SemanticCacheManager.search(
+                            question_text=problem_text,
+                            application_id=application_id,
+                            model_instance=embedding_model,
+                        )
+                        if cache_hit is not None:
+                            manage.context['_cache_hit'] = True
+                            manage.context['message_tokens'] = 0
+                            manage.context['answer_tokens'] = 0
+                            return AIMessage(content=cache_hit['answer_text']), False
+                        else:
+                            manage.context['_cache_miss'] = True
+                            manage.context['_cache_embedding_model'] = embedding_model
+                except Exception as e:
+                    maxkb_logger.warning(f"Semantic cache lookup failed in block path, continuing without cache: {e}")
+            # --- End Semantic Cache Check ---
+
             return chat_model.invoke(message_list), True
 
     def execute_block(
@@ -775,6 +843,7 @@ class BaseChatStep(IChatStep):
                 mcp_output_enable,
                 manage.context.get("application_id"),
                 chat_id,
+                manage=manage,
             )
             if is_ai_chat:
                 request_token = chat_model.get_num_tokens_from_messages(message_list)
@@ -803,6 +872,24 @@ class BaseChatStep(IChatStep):
                 padding_problem_text,
                 reasoning_content=reasoning_content,
             )
+            # --- Semantic Cache Write-Back ---
+            if manage.context.get('_cache_miss') and chat_result.content:
+                embedding_model = manage.context.get('_cache_embedding_model')
+                if embedding_model is not None:
+                    try:
+                        embedding = SemanticCacheManager.compute_embedding(problem_text, embedding_model)
+                        if embedding is not None:
+                            SemanticCacheManager.cache(
+                                problem_text=problem_text,
+                                answer_text=chat_result.content,
+                                message_tokens=request_token,
+                                answer_tokens=response_token,
+                                embedding=embedding,
+                                application_id=manage.context.get("application_id"),
+                            )
+                    except Exception as e:
+                        maxkb_logger.warning(f"Semantic cache write-back failed (block): {e}")
+            # --- End Semantic Cache Write-Back ---
             if not manage.debug:
                 add_access_num(chat_user_id, chat_user_type, manage.context.get("application_id"))
             return manage.get_base_to_response().to_block_response(

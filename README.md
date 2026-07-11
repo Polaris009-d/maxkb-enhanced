@@ -1,6 +1,6 @@
 # MaxKB 二次开发修改清单
 
-> 基于 MaxKB v2.0.0，新增语义缓存、BM25混合检索、Reranker重排序、WebSocket索引进度、RAGAS评测面板、Benchmark评测脚本等能力。共 15 个新文件，14 个修改文件，~1500 行代码。
+> 基于 MaxKB v2.0.0，新增语义缓存、BM25混合检索、Reranker重排序、WebSocket索引进度、RAGAS评测面板、Benchmark评测脚本等能力。
 
 ---
 

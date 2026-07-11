@@ -59,6 +59,19 @@
                   }}</el-text>
                 </el-radio>
               </el-card>
+              <el-card
+                shadow="never"
+                :class="form.knowledge_setting.search_mode === 'hybrid' ? 'border-active' : ''"
+              >
+                <el-radio value="hybrid" size="large">
+                  <p class="mb-4">
+                    {{ $t('views.application.dialog.rrfHybridSearch') }}
+                  </p>
+                  <el-text type="info">{{
+                    $t('views.application.dialog.rrfHybridSearchTooltip')
+                  }}</el-text>
+                </el-radio>
+              </el-card>
             </el-radio-group>
           </el-form-item>
           <el-row :gutter="10">
@@ -81,7 +94,7 @@
                 <el-input-number
                   v-model="form.knowledge_setting.similarity"
                   :min="0"
-                  :max="form.knowledge_setting.search_mode === 'blend' ? 2 : 1"
+                  :max="form.knowledge_setting.search_mode === 'blend' || form.knowledge_setting.search_mode === 'hybrid' ? 2 : 1"
                   :precision="3"
                   :step="0.1"
                   :value-on-clear="0"

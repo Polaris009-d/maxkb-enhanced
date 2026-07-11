@@ -329,7 +329,7 @@ msgstr ""
 #: apps/application/serializers/application.py:91
 #: apps/knowledge/serializers/knowledge.py:100
 #: apps/knowledge/serializers/knowledge.py:643
-msgid "The type only supports embedding|keywords|blend"
+msgid "The type only supports embedding|keywords|blend|hybrid"
 msgstr ""
 
 #: apps/application/chat_pipeline/step/search_dataset_step/i_search_dataset_step.py:46

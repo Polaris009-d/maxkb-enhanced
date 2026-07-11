@@ -159,6 +159,9 @@ export default {
     hybridSearch: '混合检索',
     hybridSearchTooltip:
       '混合检索是一种基于向量和文本相似度的检索方式，适用于知识库中的中等数据量场景。',
+    rrfHybridSearch: 'RRF混合检索',
+    rrfHybridSearchTooltip:
+      'RRF混合检索使用倒数排序融合(RRF,k=60)算法对向量和全文检索结果进行双路召回融合，适用于需要精确关键词匹配的知识库场景。',
     similarityThreshold: '相似度高于',
     similarityTooltip: '相似度越高相关性越强。',
     topReferences: '引用分段数 TOP',

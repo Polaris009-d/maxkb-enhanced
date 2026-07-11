@@ -30,7 +30,7 @@
             <el-input-number
               v-model="form.similarity"
               :min="0"
-              :max="form.search_mode === 'blend' ? 2 : 1"
+              :max="form.search_mode === 'blend' || form.search_mode === 'hybrid' ? 2 : 1"
               :precision="3"
               :step="0.1"
               :value-on-clear="0"

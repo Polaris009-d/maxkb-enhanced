@@ -163,6 +163,20 @@
                 }}</el-text>
               </el-radio>
             </el-card>
+            <el-card
+              shadow="never"
+              class="mb-16"
+              :class="cloneForm.search_mode === 'hybrid' ? 'border-active' : ''"
+            >
+              <el-radio value="hybrid" size="large">
+                <p class="mb-4">
+                  {{ $t('views.application.dialog.rrfHybridSearch') }}
+                </p>
+                <el-text type="info">{{
+                  $t('views.application.dialog.rrfHybridSearchTooltip')
+                }}</el-text>
+              </el-radio>
+            </el-card>
           </el-radio-group>
         </div>
         <el-row :gutter="20">
@@ -174,7 +188,7 @@
               <el-input-number
                 v-model="cloneForm.similarity"
                 :min="0"
-                :max="cloneForm.search_mode === 'blend' ? 2 : 1"
+                :max="cloneForm.search_mode === 'blend' || cloneForm.search_mode === 'hybrid' ? 2 : 1"
                 :precision="3"
                 :step="0.1"
                 :value-on-clear="0"

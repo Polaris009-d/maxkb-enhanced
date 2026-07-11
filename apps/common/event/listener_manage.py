@@ -400,9 +400,20 @@ class ListenerManagement:
             if is_the_task_interrupted():
                 return
             maxkb_logger.info(_("Start--->Embedding document: {document_id}").format(document_id=document_id))
+            # Publish parse started (document is already parsed at this point,
+            # but this marks the beginning of the indexing pipeline for the client)
+            IndexProgressPublisher.publish_progress(
+                document_id=str(document_id), stage="parse", status="started", percentage=0,
+                message="Document parsing started"
+            )
             # 批量修改状态为STARTED
             ListenerManagement.update_status(
                 QuerySet(Document).filter(id=document_id), TaskType.EMBEDDING, State.STARTED
+            )
+            # Publish parse completed (document is already parsed into paragraphs at this point)
+            IndexProgressPublisher.publish_progress(
+                document_id=str(document_id), stage="parse", status="completed", percentage=100,
+                message="Document parsing completed"
             )
             IndexProgressPublisher.publish_progress(
                 document_id=str(document_id), stage="embed", status="started", percentage=0,
@@ -440,6 +451,15 @@ class ListenerManagement:
             IndexProgressPublisher.publish_progress(
                 document_id=str(document_id), stage="embed", status="completed", percentage=100,
                 message="Embedding completed"
+            )
+            # Publish store started / completed (persisted to vector DB, index created)
+            IndexProgressPublisher.publish_progress(
+                document_id=str(document_id), stage="store", status="started", percentage=0,
+                message="Storing to vector database"
+            )
+            IndexProgressPublisher.publish_progress(
+                document_id=str(document_id), stage="store", status="completed", percentage=100,
+                message="Document indexing completed, stored in vector database"
             )
             maxkb_logger.info(_("End--->Embedding document: {document_id}").format(document_id=document_id))
             rlock.un_lock("embedding:" + str(document_id))

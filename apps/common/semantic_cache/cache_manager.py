@@ -14,7 +14,7 @@ import numpy as np
 
 from django.utils.translation import gettext_lazy as _
 
-logger = logging.getLogger("maxkb.semantic_cache")
+logger = logging.getLogger("max_kb")
 
 
 class SemanticCacheManager:
@@ -58,6 +58,9 @@ class SemanticCacheManager:
             return None
         try:
             embedding = model_instance.embed_query(question_text)
+            # 确保返回的是 list 而非 numpy array，避免 JSON 序列化失败
+            if hasattr(embedding, 'tolist'):
+                embedding = embedding.tolist()
             return embedding
         except Exception as e:
             logger.warning(f"Failed to compute embedding for cache: {e}")
@@ -104,7 +107,9 @@ class SemanticCacheManager:
 
         # Get all cached hash IDs for this application
         hash_ids = redis_client.smembers(index_key)
+        print(f"[SEMANTIC_CACHE_DEBUG] Redis index='{index_key}', entries_count={len(hash_ids)}")
         if not hash_ids:
+            logger.info(f"Semantic cache MISS for app={application_id}: no cached entries yet")
             return None
 
         # Compute embedding for the new question
@@ -179,7 +184,7 @@ class SemanticCacheManager:
             )
             return best_entry
 
-        logger.debug(
+        logger.info(
             f"Semantic cache MISS for app={application_id}, "
             f"best_similarity={best_similarity:.4f}, "
             f'threshold={similarity_threshold}'
@@ -210,7 +215,10 @@ class SemanticCacheManager:
         if ttl is None:
             ttl = SemanticCacheManager.DEFAULT_TTL
         if embedding is None or not answer_text:
+            print(f"[SEMANTIC_CACHE_DEBUG] cache() SKIPPED: embedding={embedding is not None}, answer_text_len={len(answer_text) if answer_text else 0}")
             return
+
+        print(f"[SEMANTIC_CACHE_DEBUG] cache() writing to Redis, app={application_id}, question='{problem_text[:50]}...'")
 
         redis_client = SemanticCacheManager._get_redis_client()
         hash_id = hashlib.md5(problem_text.encode("utf-8")).hexdigest()[:16]
@@ -225,10 +233,17 @@ class SemanticCacheManager:
             "problem_text": problem_text,
         }
 
-        redis_client.hset(cache_key, mapping=cache_data)
-        redis_client.expire(cache_key, ttl)
-        redis_client.sadd(index_key, hash_id)
-        redis_client.expire(index_key, ttl)
+        try:
+            redis_client.hset(cache_key, mapping=cache_data)
+            redis_client.expire(cache_key, ttl)
+            redis_client.sadd(index_key, hash_id)
+            redis_client.expire(index_key, ttl)
+        except Exception as e:
+            logger.warning(
+                f"Semantic cache STORE failed for app={application_id}, "
+                f'hash={hash_id}: {e}'
+            )
+            return
 
         logger.info(
             f"Semantic cache STORED for app={application_id}, "
