@@ -392,6 +392,23 @@ npm run chat
 
 ---
 
+---
+
+## 生产就绪对照表
+
+| 生产需求 | 状态 | 解决方案 | 实现文件 |
+|----------|------|---------|---------|
+| PDF解析差 | ✅ | 百度 OCR API 回退，扫描件自动识别 | `common/utils/ocr_util.py` |
+| 上传慢 | ✅ | Celery 异步任务队列 + 批量处理 | `knowledge/task/embedding.py` |
+| 文档太大 | ✅ | RecursiveCharacterTextSplitter + page_desc 分页 | `common/handle/impl/text/` |
+| 权限泄露 | ✅ | 文档级 user_id 权限过滤器 | `common/utils/permission_filter.py` |
+| 模型升级 | ✅ | embedding_model 变更自动触发重向量化 | `knowledge/signals.py` |
+| PDF更新 | ✅ | meta JSON 版本历史管理（保留 10 版） | `knowledge/document_version.py` |
+| 表格丢失 | ✅ | pdfplumber 提取结构化表格存入 meta | `common/utils/table_extractor.py` |
+| 搜索效果差 | ✅ | HybridSearch(BM25+RRF) + Reranker(Cross-Encoder) | `knowledge/vector/pg_vector.py` |
+
+---
+
 ## Docker 部署（已部署在虚拟机）
 
 ```bash
