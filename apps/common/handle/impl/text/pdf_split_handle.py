@@ -22,6 +22,7 @@ from common.handle.base_split_handle import BaseSplitHandle
 from common.utils.logger import maxkb_logger
 from common.utils.ocr_util import is_ocr_needed, ocr_image
 from common.utils.split_model import SplitModel, smart_split_paragraph
+from common.utils.table_extractor import TableExtractor
 
 default_pattern_list = [
     re.compile("(?<=^)# .*|(?<=\\n)# .*"),
@@ -123,7 +124,17 @@ class PdfSplitHandle(BaseSplitHandle):
             # 处理完后可以删除临时文件
             os.remove(temp_file_path)
 
-        return {"name": file.name, "content": split_model.parse(content)}
+        # Extract tables from PDF (non-fatal)
+        table_data = {"tables": [], "table_count": 0}
+        try:
+            with open(temp_file_path, "rb") as f:
+                pdf_bytes = f.read()
+            table_data = TableExtractor.extract_tables(pdf_bytes, temp_file_path)
+            if table_data["table_count"] > 0:
+                maxkb_logger.info(f"Extracted {table_data['table_count']} tables from {file.name}")
+        except Exception:
+            pass
+                return {"name": file.name, "content": split_model.parse(content), "meta": table_data}
 
     @staticmethod
     def handle_pdf_content(file, pdf_document):
