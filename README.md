@@ -106,6 +106,9 @@ MaxKB-v2/
 |   |   |   |-- listener_manage.py (*) 嵌入进度推送
 |   |   |-- utils/
 |   |       |-- tool_code.py      (*) Windows 兼容修复
+|   |       |-- ocr_util.py       (*) 百度 OCR 扫描件识别
+|   |       |-- permission_filter.py (*) 文档级权限过滤
+|   |       |-- table_extractor.py (*) PDF 表格结构化提取
 |   |-- maxkb/                    # Django 项目配置
 |   |   |-- asgi.py               (*) Channels WebSocket
 |   |   |-- settings/             (*) Channels 配置
@@ -126,6 +129,9 @@ MaxKB-v2/
 |   |   |   |-- evaluation.py     (*) 评测 Celery 任务
 |   |   |-- urls.py               (*) 评测路由
 |   |-- knowledge/                # 知识库
+|   |   |-- apps.py               (*) 注册 signals
+|   |   |-- signals.py            (*) 模型升级自动重 embedding
+|   |   |-- document_version.py   (*) PDF 版本管理
 |   |   |-- models/
 |   |   |   |-- knowledge.py      (*) hybrid 搜索模式
 |   |   |-- vector/
