@@ -20,6 +20,7 @@ from django.utils.translation import gettext_lazy as _
 
 from common.handle.base_split_handle import BaseSplitHandle
 from common.utils.logger import maxkb_logger
+from common.utils.ocr_util import is_ocr_needed, ocr_image
 from common.utils.split_model import SplitModel, smart_split_paragraph
 
 default_pattern_list = [
@@ -84,6 +85,28 @@ class PdfSplitHandle(BaseSplitHandle):
 
                 # 没有目录的pdf
                 content = self.handle_pdf_content(file, pdf_document)
+
+                # OCR fallback: if text extraction produced almost nothing, try OCR
+                if isinstance(content, str) and is_ocr_needed(content):
+                    maxkb_logger.info(f"PDF text sparse, trying OCR for {file.name}")
+                    try:
+                        ocr_text_parts = []
+                        for page_num, page in enumerate(pdf_document.pages):
+                            # Try pypdf's built-in image extraction (works for scanned PDFs)
+                            for img_key in page.images:
+                                try:
+                                    img_bytes = page.images[img_key].data
+                                    ocr_result = ocr_image(img_bytes)
+                                    if ocr_result:
+                                        ocr_text_parts.append(ocr_result)
+                                        maxkb_logger.info(f"OCR page {page_num+1}: {len(ocr_result)} chars")
+                                except Exception:
+                                    pass
+                        if ocr_text_parts:
+                            content = "\n\n".join(ocr_text_parts)
+                            maxkb_logger.info(f"OCR extracted {len(content)} chars from {file.name}")
+                    except Exception as e:
+                        maxkb_logger.warning(f"OCR fallback failed for {file.name}: {e}")
 
                 if pattern_list is not None and len(pattern_list) > 0:
                     split_model = SplitModel(pattern_list, with_filter, limit)
