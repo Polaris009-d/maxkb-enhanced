@@ -1,6 +1,6 @@
 # MaxKB 二次开发修改清单
 
-> 基于 MaxKB v2.0.0，新增语义缓存、BM25混合检索、Reranker重排序、WebSocket索引进度、RAGAS评测面板、Benchmark评测脚本等能力。
+> 基于 MaxKB v2.0.0，新增语义缓存、BM25混合检索、Reranker重排序、WebSocket索引进度、RAGAS评测面板、百度OCR、权限过滤、表格提取、版本管理、Benchmark评测脚本等能力。共计 20+ 新文件，16+ 修改文件，~2500 行代码。
 
 ---
 
@@ -32,7 +32,7 @@
        │                  │                                     │
 ┌──────▼──────────────────▼─────────────────────────────────────▼──────┐
 │                          Celery Worker                                │
-│  文档解析 → 切片 → 调用本地模型 Embedding → 向量入库 → WS推送进度     │
+│  文档解析(OCR+表格) → 切片 → 调用本地模型 Embedding → 向量入库 → WS推送 │
 └──────────────────────────────────────────────────────────────────────┘
 ┌────────────────────────────────┐
 │       RAGAS 评测 (定时)         │
@@ -339,7 +339,43 @@ python ../benchmark/run_benchmark.py
 
 ---
 
-## 七、环境适配（Windows）
+## 七、生产级增强
+
+### 7.1 PDF 扫描件 OCR 识别
+
+| 文件 | 说明 |
+|------|------|
+| `apps/common/utils/ocr_util.py` | 百度 OCR API 封装：token 管理、图片识别、PDF 逐页提取 |
+| `apps/common/handle/impl/text/pdf_split_handle.py` | 集成 OCR 回退：纯文本提取失败时自动调用 OCR |
+
+### 7.2 文档级权限过滤
+
+| 文件 | 说明 |
+|------|------|
+| `apps/common/utils/permission_filter.py` | `PermissionFilter`：按 user_id + role 过滤搜索结果，admin 全量 / 普通用户仅自己和公共文档 |
+
+### 7.3 PDF 表格结构化提取
+
+| 文件 | 说明 |
+|------|------|
+| `apps/common/utils/table_extractor.py` | pdfplumber 提取表格为 JSON，存入 paragraph.meta，检索时可返回结构化数据 |
+
+### 7.4 模型升级自动重 embedding
+
+| 文件 | 说明 |
+|------|------|
+| `apps/knowledge/signals.py` | Django 信号：Knowledge.embedding_model 变更时，自动标记所有关联段落为 PENDING 并触发批量重向量化 |
+| `apps/knowledge/apps.py` | 注册 signals |
+
+### 7.5 PDF 版本管理
+
+| 文件 | 说明 |
+|------|------|
+| `apps/knowledge/document_version.py` | `DocumentVersionManager`：基于 Document.meta JSON 字段的版本历史，保留最近 10 版 |
+
+---
+
+## 八、环境适配（Windows）
 
 | 文件 | 修改内容 |
 |------|----------|
@@ -357,9 +393,9 @@ python ../benchmark/run_benchmark.py
 
 | 类别 | 数量 |
 |------|------|
-| 新增文件 | 15 |
-| 修改文件 | 14 |
-| 新增代码行 | ~1500 |
+| 新增文件 | 20+ |
+| 修改文件 | 16 |
+| 新增代码行 | ~2500 |
 
 ---
 
