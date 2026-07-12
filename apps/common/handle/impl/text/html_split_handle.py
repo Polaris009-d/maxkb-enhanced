@@ -16,7 +16,7 @@ from markdownify import markdownify
 
 from common.handle.base_split_handle import BaseSplitHandle
 from common.utils.logger import maxkb_logger
-from common.utils.split_model import SplitModel
+from ingestion.chunker import SplitModel
 
 default_pattern_list = [re.compile('(?<=^)# .*|(?<=\\n)# .*'),
                         re.compile('(?<=\\n)(?<!#)## (?!#).*|(?<=^)(?<!#)## (?!#).*'),

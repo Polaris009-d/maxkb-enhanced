@@ -345,10 +345,10 @@ def smart_split_paragraph(content: str, limit: int):
 
 
 replace_map = {
-    re.compile('\n+'): '\n',
-    re.compile(' +'): ' ',
-    re.compile('#+'): "",
-    re.compile("\t+"): ''
+    re.compile(r'\n+'): '\n',
+    re.compile(r' +'): ' ',
+    re.compile(r'(?m)^#{1,6}\s'): "",  # Only strip markdown ATX heading markers (e.g. "## Title")
+    re.compile(r'\t+'): '',
 }
 
 

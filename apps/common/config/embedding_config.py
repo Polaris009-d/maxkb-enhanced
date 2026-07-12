@@ -64,7 +64,7 @@ class ModelManage:
 
 
 class VectorStore:
-    from knowledge.vector.pg_vector import PGVector
+    from retrieval.vector.pgvector import PGVector
     from knowledge.vector.base_vector import BaseVectorStore
     instance_map = {
         'pg_vector': PGVector,
@@ -73,7 +73,7 @@ class VectorStore:
 
     @staticmethod
     def get_embedding_vector() -> BaseVectorStore:
-        from knowledge.vector.pg_vector import PGVector
+        from retrieval.vector.pgvector import PGVector
         if VectorStore.instance is None:
             from maxkb.const import CONFIG
             vector_store_class = VectorStore.instance_map.get(CONFIG.get("VECTOR_STORE_NAME"),

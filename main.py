@@ -87,20 +87,20 @@ def start_services():
 
 
 def dev(maxkb=None):
-    services = args.services if isinstance(args.services, list) else args.services
-    if services.__contains__('web'):
+    services = args.services if isinstance(args.services, list) else [args.services]
+    if 'web' in services:
         management.call_command('runserver', "0.0.0.0:8080")
-    elif services.__contains__('celery'):
+    if 'celery' in services:
         management.call_command('celery', 'celery')
-    elif services.__contains__('local_model'):
+    if 'local_model' in services:
         from maxkb.const import CONFIG
         bind = f'{CONFIG.get("LOCAL_MODEL_HOST")}:{CONFIG.get("LOCAL_MODEL_PORT")}'
         management.call_command('runserver', bind)
 
 
 if __name__ == '__main__':
-    os.environ['HF_HOME'] = '/opt/maxkb-app/model/base'
-    os.environ['TMPDIR'] = '/opt/maxkb-app/tmp'
+    os.environ['HF_HOME'] = os.environ.get('HF_HOME', os.path.join(BASE_DIR, 'data', 'model', 'base'))
+    os.environ['TMPDIR'] = os.environ.get('TMPDIR', os.path.join(BASE_DIR, 'data', 'tmp'))
     parser = argparse.ArgumentParser(
         description="""
            qabot service control tools;
@@ -127,7 +127,7 @@ if __name__ == '__main__':
     parser.add_argument('-f', '--force', nargs="?", const=True)
     args = parser.parse_args()
     action = args.action
-    services = args.services if isinstance(args.services, list) else args.services
+    services = args.services if isinstance(args.services, list) else [args.services]
     if services.__contains__('web'):
         os.environ.setdefault('SERVER_NAME', 'web')
     elif services.__contains__('local_model'):

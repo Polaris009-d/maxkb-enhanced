@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'tools.apps.ToolConfig',
     'knowledge',
     'common',
+    'events',
     'system_manage',
     'models_provider',
     'django_celery_beat',

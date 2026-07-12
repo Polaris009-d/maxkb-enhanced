@@ -107,7 +107,6 @@ class SemanticCacheManager:
 
         # Get all cached hash IDs for this application
         hash_ids = redis_client.smembers(index_key)
-        print(f"[SEMANTIC_CACHE_DEBUG] Redis index='{index_key}', entries_count={len(hash_ids)}")
         if not hash_ids:
             logger.info(f"Semantic cache MISS for app={application_id}: no cached entries yet")
             return None
@@ -215,10 +214,8 @@ class SemanticCacheManager:
         if ttl is None:
             ttl = SemanticCacheManager.DEFAULT_TTL
         if embedding is None or not answer_text:
-            print(f"[SEMANTIC_CACHE_DEBUG] cache() SKIPPED: embedding={embedding is not None}, answer_text_len={len(answer_text) if answer_text else 0}")
+            logger.info(f"Semantic cache STORE skipped: no embedding or empty answer, app={application_id}")
             return
-
-        print(f"[SEMANTIC_CACHE_DEBUG] cache() writing to Redis, app={application_id}, question='{problem_text[:50]}...'")
 
         redis_client = SemanticCacheManager._get_redis_client()
         hash_id = hashlib.md5(problem_text.encode("utf-8")).hexdigest()[:16]

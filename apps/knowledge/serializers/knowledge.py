@@ -26,7 +26,7 @@ from common.field.common import UploadedFileField
 from common.utils.common import bulk_create_in_batches, get_file_content, parse_image, post
 from common.utils.fork import ChildLink, Fork
 from common.utils.logger import maxkb_logger
-from common.utils.split_model import get_split_model
+from ingestion.chunker import get_split_model
 from django.core import validators
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import models, transaction

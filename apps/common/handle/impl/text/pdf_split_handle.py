@@ -20,9 +20,58 @@ from django.utils.translation import gettext_lazy as _
 
 from common.handle.base_split_handle import BaseSplitHandle
 from common.utils.logger import maxkb_logger
-from common.utils.ocr_util import is_ocr_needed, ocr_image
-from common.utils.split_model import SplitModel, smart_split_paragraph
-from common.utils.table_extractor import TableExtractor
+from ingestion.ocr.baidu import is_ocr_needed, ocr_image
+from ingestion.chunker import SplitModel, smart_split_paragraph
+from ingestion.extractor.table import TableExtractor
+
+
+def _has_cjk_encoding_issues(text: str) -> bool:
+    """Detect if pypdf garbled CJK characters in the extracted text.
+
+    pypdf may fail to decode glyphs from embedded Chinese fonts (e.g. GBK
+    CID fonts), producing Unicode replacement characters (U+FFFD) or
+    stripping special characters like 〔〕 altogether.
+
+    Returns True if the text shows signs of encoding damage.
+    """
+    if not text or len(text) < 100:
+        return False
+    # Unicode replacement character — a sure sign of decode failure
+    if "�" in text:
+        return True
+    # Heuristic: if the text contains CJK ideographs but has suspiciously
+    # few CJK punctuation marks (which pypdf often drops), flag it.
+    cjk_ideograph = sum(1 for ch in text if '一' <= ch <= '鿿')
+    cjk_compat = sum(1 for ch in text if '　' <= ch <= '〿')  # CJK Symbols and Punctuation
+    if cjk_ideograph > 100 and cjk_compat < 3:
+        return True
+    return False
+
+
+def _extract_text_pdfplumber(pdf_path: str) -> str:
+    """Extract text from PDF using pdfplumber (better CJK support than pypdf).
+
+    Args:
+        pdf_path: Path to the PDF file on disk.
+
+    Returns:
+        Extracted text from all pages, or empty string on failure.
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        return ""
+
+    parts = []
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    parts.append(text)
+    except Exception:
+        return ""
+    return "\n\n".join(parts)
 
 default_pattern_list = [
     re.compile("(?<=^)# .*|(?<=\\n)# .*"),
@@ -87,6 +136,23 @@ class PdfSplitHandle(BaseSplitHandle):
                 # 没有目录的pdf
                 content = self.handle_pdf_content(file, pdf_document)
 
+                # pdfplumber fallback: pypdf may garble CJK glyphs (e.g. 〔〕)
+                # from embedded Chinese fonts.  pdfplumber handles these better.
+                if isinstance(content, str) and _has_cjk_encoding_issues(content):
+                    maxkb_logger.info(
+                        f"pypdf output shows CJK encoding issues, trying pdfplumber for {file.name}"
+                    )
+                    try:
+                        plumber_text = _extract_text_pdfplumber(temp_file_path)
+                        if plumber_text and len(plumber_text) > len(content) * 0.8:
+                            maxkb_logger.info(
+                                f"pdfplumber extracted {len(plumber_text)} chars "
+                                f"(pypdf: {len(content)}), using pdfplumber result"
+                            )
+                            content = plumber_text
+                    except Exception as e:
+                        maxkb_logger.warning(f"pdfplumber fallback failed for {file.name}: {e}")
+
                 # OCR fallback: if text extraction produced almost nothing, try OCR
                 if isinstance(content, str) and is_ocr_needed(content):
                     maxkb_logger.info(f"PDF text sparse, trying OCR for {file.name}")
@@ -134,7 +200,7 @@ class PdfSplitHandle(BaseSplitHandle):
                 maxkb_logger.info(f"Extracted {table_data['table_count']} tables from {file.name}")
         except Exception:
             pass
-                return {"name": file.name, "content": split_model.parse(content), "meta": table_data}
+        return {"name": file.name, "content": split_model.parse(content), "meta": table_data}
 
     @staticmethod
     def handle_pdf_content(file, pdf_document):

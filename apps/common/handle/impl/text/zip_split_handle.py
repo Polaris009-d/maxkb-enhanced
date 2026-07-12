@@ -21,7 +21,7 @@ from common.handle.base_split_handle import BaseSplitHandle
 from common.handle.impl.text.csv_split_handle import CsvSplitHandle
 from common.handle.impl.text.doc_split_handle import DocSplitHandle
 from common.handle.impl.text.html_split_handle import HTMLSplitHandle
-from common.handle.impl.text.pdf_split_handle import PdfSplitHandle
+from ingestion.parser.pdf import PdfSplitHandle
 from common.handle.impl.text.text_split_handle import TextSplitHandle
 from common.handle.impl.text.xls_split_handle import XlsSplitHandle
 from common.handle.impl.text.xlsx_split_handle import XlsxSplitHandle

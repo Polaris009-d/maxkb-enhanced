@@ -29,6 +29,7 @@ const color = ['rgba(82, 133, 255, 1)', 'rgba(255, 207, 47, 1)']
 const areaColor = ['rgba(82, 133, 255, 0.15)', 'rgba(255, 207, 47, 0.15)']
 
 function initChart() {
+  if (!props.id) return
   let myChart = echarts?.getInstanceByDom(document.getElementById(props.id)!)
   if (myChart === null || myChart === undefined) {
     myChart = echarts.init(document.getElementById(props.id))
@@ -102,6 +103,7 @@ function initChart() {
 }
 
 function changeChartSize() {
+  if (!props.id) return
   echarts.getInstanceByDom(document.getElementById(props.id)!)?.resize()
 }
 

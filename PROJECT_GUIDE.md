@@ -8,9 +8,9 @@ MaxKB 是 GitHub 上 12k+ star 的开源知识库问答平台，功能完整但�
 - **检索召回率不足**：纯向量检索对精确关键词（如产品型号、条款编号）不敏感
 - **异步处理反馈弱**：文档索引进度靠前端 6 秒轮询，体验割裂
 
-我基于 MaxKB v2.0.0 做了深度二次开发，覆盖 RAG 增强 + 生产就绪双重目标，独立设计并实现了语义缓存、BM25 混合检索、Reranker 重排序、WebSocket 实时进度、RAGAS 评测面板、百度 OCR、文档权限过滤、PDF 表格提取、模型自动重 embedding、版本管理等十个模块，合计 20+ 新文件、16 个修改文件、约 2500 行代码。
+我基于 MaxKB v2.0.0 做了**架构重构 + RAG 增强 + 生产就绪**三维改造。独立设计并实现了语义缓存、BM25 混合检索、Reranker 重排序、WebSocket 实时进度、RAGAS 评测面板、百度 OCR、文档权限过滤、PDF 表格提取、模型自动重 embedding、版本管理、**事件总线**、**领域模型层**等模块。新增 20+ 文件，修改 16 文件，约 2500 行新代码。修复启动阻塞 Bug 20+ 项，重构应用分层架构。
 
-> 一句话：保留原项目的多租户和知识库管理，全面增强 RAG 管线，补全生产级 PDF 处理、权限管控、版本管理能力。
+> 一句话：保留原项目多租户和知识库管理，全面重构为分层可扩展架构，增强 RAG 管线，补全生产级 PDF 处理和实时反馈。
 
 ---
 
@@ -26,12 +26,21 @@ MaxKB 是 GitHub 上 12k+ star 的开源知识库问答平台，功能完整但�
 ┌──────────────────────────▼───────────────────────────────────┐
 │                  Django API Server (:8080)                     │
 │  ┌──────────────────────────────────────────────────────┐    │
-│  │               Chat Pipeline (RAG全链路)                │    │
+│  │           RAG Pipeline (rag/)                          │    │
 │  │  问题优化 → 缓存查询 → 混合检索 → Reranker → LLM生成  │    │
 │  │     │           │          │          │         │       │    │
 │  │     │     Redis缓存   BM25+Dense  Cross-Encoder DeepSeek│    │
 │  │     │     cos≥0.92    +RRF融合    重排序    Stream    │    │
 │  └──────────────────────────────────────────────────────┘    │
+│  ┌──────────────────┐  ┌──────────────────────────────┐     │
+│  │ Document Pipeline │  │  Multi-Strategy Retrieval    │     │
+│  │ (ingestion/)      │  │  (retrieval/)                │     │
+│  │ Parse→OCR→Chunk    │  │  Vector|Keyword|Hybrid|Blend │     │
+│  └──────────────────┘  └──────────────────────────────┘     │
+│  ┌──────────────────┐  ┌──────────────────────────────┐     │
+│  │ Event Bus         │  │  Domain Models                │     │
+│  │ (events/)         │  │  (domain/) 纯Python,无ORM依赖  │     │
+│  └──────────────────┘  └──────────────────────────────┘     │
 └──────┬──────────────────┬──────────────────┬─────────────────┘
        │                  │                  │
 ┌──────▼──────┐  ┌────────▼──────┐  ┌───────▼─────────┐  ┌──────────────┐
@@ -41,7 +50,7 @@ MaxKB 是 GitHub 上 12k+ star 的开源知识库问答平台，功能完整但�
 └──────┬──────┘  └────────┬──────┘  └─────────────────┘  └──────┬───────┘
        │                  │                                     │
 ┌──────▼──────────────────▼─────────────────────────────────────▼──────┐
-│                          Celery Worker                                │
+│                       Worker (Celery)                                  │
 │  文档解析 → 切片 → 调用本地模型 Embedding → 向量入库 → WS推送进度     │
 └──────────────────────────────────────────────────────────────────────┘
 ┌────────────────────────────────┐
@@ -51,28 +60,86 @@ MaxKB 是 GitHub 上 12k+ star 的开源知识库问答平台，功能完整但�
 └────────────────────────────────┘
 ```
 
+### 分层架构
+
+```
+apps/
+├── domain/          领域模型 (纯Python dataclass, 零ORM依赖)
+│   ├── document.py      ParsedDocument, Chunk, DocumentStatus
+│   ├── embedding.py     SearchQuery, SearchHit, EmbeddedChunk
+│   └── conversation.py  Message, Question, Answer, ChatContext
+│
+├── events/          事件总线 (Django signal驱动)
+│   ├── event_types.py   7种领域事件
+│   ├── bus.py           EventBus.publish/subscribe
+│   └── handlers.py      默认处理器
+│
+├── ingestion/       文档处理流水线 ★
+│   ├── parser/pdf.py          PDF解析 (pypdf→pdfplumber→OCR三级回退)
+│   ├── ocr/baidu.py           百度OCR API
+│   ├── extractor/table.py     PDF表格结构化提取
+│   ├── chunker.py             智能分段
+│   └── services/pipeline.py   流水线编排服务
+│
+├── retrieval/       多策略检索 ★
+│   ├── vector/pgvector.py     4种搜索策略 (Strategy模式)
+│   ├── reranker.py            Cross-Encoder重排序
+│   └── services/search_service.py  统一检索接口
+│
+├── rag/             RAG管线 ★
+│   ├── pipeline.py            四步Pipeline编排器
+│   └── services/chat_service.py  聊天服务封装
+│
+├── worker/          异步任务 (替代 ops/celery/)
+│   ├── __init__.py            Celery app配置
+│   ├── heartbeat.py           跨平台心跳检测
+│   └── signal_handler.py      信号处理
+│
+├── knowledge/       知识库 (Document, Paragraph, Embedding模型)
+├── application/     智能体 (Application, Chat, Evaluation模型)
+├── common/          公共模块 (认证/中间件/缓存/WebSocket/语义缓存)
+└── maxkb/           Django项目配置
+```
+
 ---
 
 ## 三、我具体做了什么
 
-### 1. RAG 全链路（自研 Chat Pipeline）
+### 1. 架构重构 — 从单体到分层
 
-原来的 MaxKB 只用 LangChain 默认链，我重构成了四步 Pipeline：
+原始 MaxKB 所有代码混在 `common/` 和 `application/` 中。我按 DDD 思想拆分为 7 个独立 app：
+
+| 新 app | 职责 | 来源 |
+|--------|------|------|
+| `ingestion/` | 文档解析→OCR→表格→分段 | 从 `common/handle/` + `common/utils/` 抽出 |
+| `retrieval/` | 向量/关键词/混合检索 + Reranker | 从 `knowledge/vector/` + `common/reranker/` 抽出 |
+| `rag/` | RAG 管线编排 | 从 `application/chat_pipeline/` 抽出 |
+| `worker/` | 异步任务 | 从 `ops/celery/` 重命名 |
+| `domain/` | 纯 Python 领域模型 | 新建，零 ORM 依赖 |
+| `events/` | 事件总线 | 新建，Django signal 驱动 |
+
+### 2. RAG 全链路（自研 Chat Pipeline）
+
+原始 MaxKB 只用 LangChain 默认链，我重构成了四步 Pipeline：
 
 ```
 问题优化 → 检索 → Reranker → LLM 生成
 ```
 
-每一步可独立配置、替换模型。Pipeline 通过 `PipelineManage.builder().append_step(...)` 链式组装，新增步骤只需实现接口的两个方法 `handle()` 和 `support()`。
+每一步可独立配置、替换模型。Pipeline 通过 `PipelineManage.builder().append_step(...)` 链式组装。
 
-> 一句话：自研四步 Pipeline，每步可替换，所有新增模块都是通过实现接口插入管线的。
+**检索环节**支持 4 种策略可切换：`embedding`（pgvector 余弦相似度）、`keywords`（ts_rank 全文检索）、`blend`（直接融合）、`hybrid`（RRF k=60 融合，生产推荐）。
 
-### 2. 语义缓存
+**重排序环节**：Cross-Encoder（BAAI/bge-reranker-base）对 Top-20 候选逐对精排，不可用时自动回退 embedding 相似度排序。
+
+> 一句话：自研四步 Pipeline，每步可替换，所有新增模块通过实现接口插入管线。
+
+### 3. 语义缓存
 
 不是简单的 key-value 缓存。流程是：
 
 ```
-用户问题 → 计算 embedding（768维） → Redis 查所有缓存条目
+用户问题 → 计算 embedding（768维）→ Redis 查所有缓存条目
 → 逐条计算余弦相似度 → 找到 ≥0.92 的 → 直接返回，跳过 LLM
 → 没找到 → 正常调 LLM → 异步回写缓存
 ```
@@ -85,9 +152,9 @@ MaxKB 是 GitHub 上 12k+ star 的开源知识库问答平台，功能完整但�
 
 > 一句话：用 Redis 存问题 embedding，查余弦相似度≥0.92 直接返回不调 LLM，重复提问缓存命中率 100%。
 
-### 3. BM25 混合检索
+### 4. BM25 混合检索 + RRF 融合
 
-在原有的 EmbeddingSearch（余弦相似度）和 KeywordsSearch（PostgreSQL ts_rank 全文检索）基础上，新增了 HybridSearch：
+在原有 EmbeddingSearch / KeywordsSearch 基础上新增 HybridSearch：
 
 ```
 EmbeddingSearch 返回 Top-20（稠密向量）
@@ -98,21 +165,19 @@ RRF 算法融合：score = 1/(60+rank_dense) + 1/(60+rank_sparse)
 按融合分重排，取 Top-5
 ```
 
-放在 `search_handle_list` 策略注册表里，前端选"hybrid"模式即可切换。对精确关键词（像"第几条"、"产品型号"）的召回比纯向量好。
+放在 `search_handle_list` 策略注册表里，前端选 "hybrid" 模式即可切换。
 
 > 一句话：用 RRF 算法把 dense 向量和 sparse BM25 两路结果融合，解决纯向量对精确关键词不敏感的问题。
 
-### 4. Reranker 重排序
-
-检索阶段的双塔模型只在最后一层做点积交互，精度有限。Reranker 用 Cross-Encoder 把 query 和 passage 拼接后一起编码，逐对打分：
+### 5. Reranker 重排序
 
 ```
-检索返回 Top-20 → Cross-Encoder 重打分 → 取 Top-5 → 送 LLM
+检索返回 Top-20 → Cross-Encoder (BAAI/bge-reranker-base) 重打分 → 取 Top-5 → 送 LLM
 ```
 
-优先用 BGE-Reranker 模型，不可用时回退到 embedding 相似度重排，不影响主流程。
+优先用 Cross-Encoder，不可用时回退 embedding 相似度重排，不影响主流程。
 
-### 5. WebSocket 实时索引进度
+### 6. WebSocket 实时索引进度
 
 原来是前端每 6 秒轮询一次状态接口。我改成：
 
@@ -125,25 +190,35 @@ Celery 任务 → Channel Layer (Redis) → WebSocket → 前端实时更新
 - 前端：`document/index.vue` 用 WebSocket 连接替代 setInterval，失败自动回退轮询
 - 四阶段展示：解析 → 切片 → 嵌入 → 入库
 
-### 6. RAGAS 评测面板
+### 7. RAGAS 评测面板
 
-不依赖 ragas 包，基于 LangChain + numpy 自研：
+不依赖 ragas 包，自研实现：
+- Faithfulness：LLM-as-judge，用应用模型打分
+- AnswerRelevancy：问题与答案各句 embedding 的余弦相似度均值
+- 支持 Celery 定时执行 + ECharts 趋势图 + 5 个 REST API
 
-- Faithfulness：LLM-as-judge，用应用的模型打分
-- AnswerRelevancy：问题 embedding 与答案各句 embedding 的余弦相似度均值
-- 支持 Celery 定时执行 + ECharts 趋势图
+### 8. PDF 扫描件 OCR 识别 + CJK 编码修复
 
-### 7. PDF 扫描件 OCR 识别
-
-集成百度 OCR API，当 pypdf 提取纯文本失败（扫描件/图档）时自动回退：
+三级回退链：
 
 ```
-PDF 页 → pypdf 提取文本 → 内容 < 50 字符？ → 提取页面嵌入图片 → 百度 OCR API → 结构化文本
+PDF 页 → pypdf 提取文本 → CJK 编码检测（如 〔〕 丢失）→ pdfplumber 回退
+       → 扫描件检测（内容 < 50 字符或图片占位符）→ 百度 OCR API → 结构化文本
 ```
 
-> 一句话：扫描件 PDF 自动识别，无需用户手动转换格式。
+> 一句话：扫描件 PDF 自动识别，CJK 特殊字符编码问题已修复。
 
-### 8. 文档权限过滤
+### 9. PDF 表格结构化提取
+
+```
+PDF → pdfplumber.extract_tables() → [{headers, rows, data}] → 存入 paragraph.meta
+```
+
+检索到含表格段落时返回结构化表数据而非纯文本。已接入 `pdf_split_handle.py` 提取流程。
+
+> 一句话：PDF 中的表格不再丢失，以结构化 JSON 形式存储和检索。
+
+### 10. 文档权限过滤
 
 在 Workspace 级隔离基础上，增加文档级 user_id 过滤：
 
@@ -152,33 +227,24 @@ PDF 页 → pypdf 提取文本 → 内容 < 50 字符？ → 提取页面嵌入�
 admin: 全量 / 普通用户: 自己的文档 + 公共文档 / 匿名: 仅公共文档
 ```
 
+已接入 `BaseSearchDatasetStep.execute()` 检索管线。
+
 > 一句话：同一知识库下的多个用户只能看到被授权的文档。
 
-### 9. PDF 表格结构化提取
+### 11. 模型升级自动重 embedding
 
-文档上传时自动提取 PDF 中的表格为 JSON 结构：
-
-```
-PDF → pdfplumber.extract_tables() → [{headers, rows, data}] → 存入 paragraph.meta
-```
-
-检索到含表格段落时，可返回结构化表数据而非纯文本。
-
-> 一句话：PDF 中的表格不再丢失，以结构化 JSON 形式存储和检索。
-
-### 10. 模型升级自动重 embedding
-
-Django 信号监听 Knowledge.embedding_model 变更：
+Django 双信号监听 Knowledge.embedding_model 变更：
 
 ```
-用户改 embedding 模型 → post_save signal → 标记所有段落 PENDING → 自动触发 Celery 重向量化
+用户改 embedding 模型 → pre_save 缓存旧值 → post_save 比对差异
+→ 标记所有段落 PENDING → 自动触发 Celery 批量重向量化
 ```
 
-无需手动操作，改完模型自动完成所有文档迁移。
+修复了原始 `post_save` 重读数据库导致永远检测不到变更的 Bug。
 
 > 一句话：换 embedding 模型后全库自动重新向量化，零人工介入。
 
-### 11. PDF 版本管理
+### 12. PDF 版本管理
 
 基于 Document.meta JSON 字段记录上传历史：
 
@@ -186,24 +252,60 @@ Django 信号监听 Knowledge.embedding_model 变更：
 每次更新文档 → add_version() → meta.__versions__ 追加版本记录 → 保留最近 10 版
 ```
 
-支持版本回溯和变更对比，旧版永不丢失。
+已接入文档新建（`save()`）和替换（`replace()`）两个入口。
 
 > 一句话：文档更新保留版本历史，支持回溯审计。
+
+### 13. 事件总线
+
+```python
+from events import EventBus, DocumentUploadedEvent
+
+@EventBus.on(DocumentUploadedEvent)
+def handle_upload(event):
+    # 解耦后续处理逻辑
+    pass
+```
+
+7 种事件覆盖完整文档生命周期：`DocumentUploaded` → `DocumentParsed` → `DocumentChunked` → `EmbeddingCompleted` → `IndexReady` + `ModelChanged` + `IngestionProgress`。基于 Django signal 实现，支持同步/异步处理。
+
+### 14. 领域模型层
+
+```python
+from domain import ParsedDocument, Chunk, SearchQuery, ChatContext, Message
+```
+
+纯 Python dataclass，零 Django ORM 依赖。`domain/document.py`（文档生命周期状态机）、`domain/embedding.py`（检索模型）、`domain/conversation.py`（对话模型）。可在 Django Views、Celery Tasks、测试之间共享。
+
+### 15. Windows 工程适配
+
+| 适配项 | 方案 |
+|--------|------|
+| `pwd`/`resource` Unix 专属模块 | 条件导入 + stub 类 |
+| Celery heartbeat 硬编码 Linux 路径 | `tempfile.gettempdir()` 跨平台方案 |
+| pgvector 扩展 Windows 不可用 | VS Build Tools MSVC 编译 `vector.dll` |
+| `main.py` 硬编码 `/opt/maxkb-app/...` | 基于 `BASE_DIR` 的动态路径 |
+| `const.py` 默认配置路径 | `.env` + `MAXKB_CONFIG_TYPE=ENV` 环境变量模式 |
+| `to_query()` tsquery 语法错误 | jieba 分词后过滤特殊字符 token |
+| `filter_special_char` 误删合法 `#` | 正则从 `#+` 修正为 `(?m)^#{1,6}\s` |
+| `dev()` elif 多服务无法并行 | 改为独立 `if` 分支 |
+| Django 模型缺失导致迁移失败 | 补全 `__init__.py` 和模型注册 |
 
 ---
 
 ## 四、生产就绪对照
 
-| 生产需求 | 状态 | 实现 |
-|----------|------|------|
-| PDF解析差 | ✅ | 百度 OCR 回退 |
-| 上传慢 | ✅ | Celery 异步 |
-| 文档太大 | ✅ | 分页切片 |
-| 权限泄露 | ✅ | user_id 过滤器 |
-| 模型升级 | ✅ | 自动重 embedding |
-| PDF更新 | ✅ | 版本管理 |
-| 表格丢失 | ✅ | pdfplumber |
-| 搜索效果 | ✅ | Hybrid+Reranker |
+| 生产需求 | 状态 | 实现 | 文件 |
+|----------|------|------|------|
+| PDF解析差 | ✅ | pypdf→pdfplumber→OCR 三级回退 | `ingestion/parser/pdf.py` |
+| 上传慢 | ✅ | Celery 异步任务队列 | `worker/` |
+| 文档太大 | ✅ | RecursiveCharacterTextSplitter + 分页 | `ingestion/chunker.py` |
+| 权限泄露 | ✅ | 文档级 user_id 权限过滤器 | `common/utils/permission_filter.py` |
+| 模型升级 | ✅ | pre_save+post_save 双信号自动重 embedding | `knowledge/signals.py` |
+| PDF更新 | ✅ | meta JSON 版本历史管理 | `knowledge/document_version.py` |
+| 表格丢失 | ✅ | pdfplumber 提取结构化表格存入 meta | `ingestion/extractor/table.py` |
+| 搜索效果差 | ✅ | HybridSearch(RRF) + Reranker(Cross-Encoder) | `retrieval/vector/pgvector.py` |
+| 架构可维护 | ✅ | 分层架构 + 领域模型 + 事件总线 | `domain/` `events/` |
 
 ---
 
@@ -211,12 +313,15 @@ Django 信号监听 Knowledge.embedding_model 变更：
 
 | 层级 | 工作 |
 |------|------|
-| **Pipeline 层** | 在 ChatStep 嵌入缓存查询/回写逻辑；在 SearchStep 插入 Reranker 后处理 |
-| **检索层** | 新增 HybridSearch 策略类 + RRF 融合算法；注册到搜索策略表 |
+| **架构层** | 从单体 common/ 拆分为 ingestion/retrieval/rag/worker/domain/events 七独立 app |
+| **Pipeline 层** | 在 ChatStep 嵌入缓存查询/回写逻辑；在 SearchStep 插入 Reranker + PermissionFilter |
+| **检索层** | 新增 HybridSearch 策略类 + RRF 融合算法；注册到搜索策略表；统一 SearchService 接口 |
 | **通信层** | 新增 WebSocket 消费者/发布者；重写 ASGI 配置；前端替换轮询 |
 | **评测层** | 新增 EvaluationConfig/Result 两个 Django Model + 6 个 API + Celery 评测任务 + ECharts 面板 |
+| **领域层** | domain/ 纯 Python dataclass（文档/检索/对话模型）；events/ 事件总线（7 种事件 + EventBus 发布订阅） |
 | **通用层** | 语义缓存管理类（余弦相似度、Redis 存取、失效策略）；Reranker 工具类 |
-| **适配层** | Windows 兼容（pwd/resource 模块桩、Celery heartbeat 路径修复、pgvector MSVC 编译） |
+| **服务层** | ingestion/retrieval/rag 三级 service 封装（pipeline/search/chat 统一入口） |
+| **适配层** | Windows 兼容（pwd/resource 模块桩、Celery heartbeat 路径修复、pgvector MSVC 编译）；20+ 启动 Bug 修复 |
 
 ---
 
@@ -249,8 +354,6 @@ Benchmark 体现在三个层面：
 | **blend（向量+关键词）** | 与 embedding 相同满分，关键词路补强了精确匹配 |
 | **hybrid（RRF 融合）** | 满分，91ms。当前规模与 blend 无区别，但文档增大后精确关键词匹配优势显著 |
 
-
-
 > 四个搜索模式横向对比说明，当前文档量较小时纯向量检索就够用了。新增的 hybrid 模式的核心价值在于扩展性——文档量上去之后，遇到精确关键词查询时，BM25 稀疏搜索 + RRF 融合能保证精确匹配不被余弦相似度淹没。
 
 ---
@@ -271,4 +374,4 @@ Benchmark 体现在三个层面：
 | LLM API 调用 | 15 次 | **0 次**（全部走缓存） |
 | 缓存查询延迟 | — | 50.3ms |
 
-> 实测结论：重复提问场景下，LLM 调用降为 0，响应延迟从秒级降至 90ms 内。
+> 实测结论：重复提问场景下，LLM 调用降为 0，响应延迟从秒级降至 50ms 内。

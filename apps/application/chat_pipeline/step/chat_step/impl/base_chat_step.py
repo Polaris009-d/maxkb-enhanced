@@ -603,19 +603,15 @@ class BaseChatStep(IChatStep):
                 return mcp_result, True
 
             # --- Semantic Cache Check ---
-            print(f"[SEMANTIC_CACHE_DEBUG] manage={manage is not None}, problem_text={bool(problem_text)}, "
-                  f"agent_id={agent_id}, workspace_id={workspace_id}")
             if manage is not None and problem_text:
                 try:
                     embedding_model = BaseChatStep._resolve_embedding_model(manage, workspace_id)
-                    print(f"[SEMANTIC_CACHE_DEBUG] embedding_model={'FOUND' if embedding_model is not None else 'NONE'}")
                     if embedding_model is not None:
                         cache_hit = SemanticCacheManager.search(
                             question_text=problem_text,
                             application_id=agent_id,
                             model_instance=embedding_model,
                         )
-                        print(f"[SEMANTIC_CACHE_DEBUG] search_result={'HIT: sim=' + str(cache_hit.get('similarity','?')) if cache_hit else 'MISS'}")
                         if cache_hit is not None:
                             manage.context['_cache_hit'] = True
                             manage.context['message_tokens'] = 0

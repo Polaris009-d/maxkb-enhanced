@@ -27,7 +27,7 @@ from common.handle.impl.table.xlsx_parse_table_handle import XlsxParseTableHandl
 from common.handle.impl.text.csv_split_handle import CsvSplitHandle
 from common.handle.impl.text.doc_split_handle import DocSplitHandle
 from common.handle.impl.text.html_split_handle import HTMLSplitHandle
-from common.handle.impl.text.pdf_split_handle import PdfSplitHandle
+from ingestion.parser.pdf import PdfSplitHandle
 from common.handle.impl.text.text_split_handle import TextSplitHandle
 from common.handle.impl.text.xls_split_handle import XlsSplitHandle
 from common.handle.impl.text.xlsx_split_handle import XlsxSplitHandle
@@ -35,7 +35,7 @@ from common.handle.impl.text.zip_split_handle import ZipSplitHandle
 from common.utils.common import bulk_create_in_batches, get_file_content, parse_image, post
 from common.utils.fork import Fork
 from common.utils.logger import maxkb_logger
-from common.utils.split_model import flat_map, get_split_model
+from ingestion.chunker import flat_map, get_split_model
 from django.contrib.postgres.fields import JSONField
 from django.core import validators
 from django.db import models, transaction
@@ -1047,6 +1047,9 @@ class DocumentSerializers(serializers.Serializer):
             QuerySet(ProblemParagraphMapping).bulk_create(problem_paragraph_mapping_list) if len(
                 problem_paragraph_mapping_list
             ) > 0 else None
+            # Record initial version after document creation
+            from knowledge.document_version import DocumentVersionManager
+            DocumentVersionManager.add_version(document_model)
             document_id = str(document_model.id)
             return (
                 DocumentSerializers.Operate(data={"knowledge_id": knowledge_id, "document_id": document_id}).one(
@@ -1942,6 +1945,13 @@ class DocumentSerializers(serializers.Serializer):
                 # 更新所有相同hash的文件
                 for file_obj in files_to_update:
                     file_obj.save(file_content)
+
+            # Record new version after document replacement
+            from knowledge.document_version import DocumentVersionManager
+            document = Document.objects.get(id=self.data.get("document_id"))
+            DocumentVersionManager.add_version(document, file_info={
+                "file_size": file.size if hasattr(file, 'size') else 0,
+            })
 
             return True
 

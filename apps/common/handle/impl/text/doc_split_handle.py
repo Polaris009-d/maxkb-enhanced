@@ -21,7 +21,7 @@ from docx.text.paragraph import Paragraph
 
 from common.handle.base_split_handle import BaseSplitHandle
 from common.utils.logger import maxkb_logger
-from common.utils.split_model import SplitModel
+from ingestion.chunker import SplitModel
 from knowledge.models import File
 
 default_pattern_list = [re.compile('(?<=^)# .*|(?<=\\n)# .*'),

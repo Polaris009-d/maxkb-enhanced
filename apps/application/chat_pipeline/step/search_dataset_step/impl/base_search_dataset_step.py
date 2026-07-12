@@ -18,6 +18,7 @@ from application.chat_pipeline.step.search_dataset_step.i_search_dataset_step im
 from common.config.embedding_config import VectorStore, ModelManage
 from common.constants.permission_constants import RoleConstants
 from common.database_model_manage.database_model_manage import DatabaseModelManage
+from common.utils.permission_filter import PermissionFilter
 from common.db.search import native_search
 from common.utils.common import get_file_content
 from knowledge.models import Paragraph, Knowledge
@@ -79,6 +80,13 @@ class BaseSearchDatasetStep(ISearchDatasetStep):
         embedding_list = self._apply_reranker(exec_problem_text, embedding_list, embedding_model)
         # --- End Reranker ---
         paragraph_list = self.list_paragraph(embedding_list, vector)
+        # --- Permission filter: restrict paragraphs to user-accessible documents ---
+        chat_user_id = manage.context.get('chat_user_id')
+        chat_user_type = manage.context.get('chat_user_type')
+        # Map RoleConstants: ADMIN bypasses all filtering, others see only their own + public docs
+        role = 'admin' if chat_user_type == RoleConstants.ADMIN.value.name else 'viewer'
+        paragraph_list = PermissionFilter.filter_paragraphs(paragraph_list, chat_user_id, role)
+        # --- End Permission filter ---
         result = [self.reset_paragraph(paragraph, embedding_list) for paragraph in paragraph_list]
         return result
 
@@ -93,7 +101,7 @@ class BaseSearchDatasetStep(ISearchDatasetStep):
             return embedding_list
 
         try:
-            from common.reranker.reranker import RerankerManager
+            from retrieval.reranker import RerankerManager
 
             # Fetch paragraph content for top-N candidates
             from knowledge.models import Paragraph

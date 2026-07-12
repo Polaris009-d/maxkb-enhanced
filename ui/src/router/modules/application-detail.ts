@@ -248,7 +248,7 @@ const ApplicationDetailRouter = {
       meta: {
         icon: 'app-data-analysis',
         iconActive: 'app-data-analysis-active',
-        title: 'RAG 评测',
+        title: 'views.evaluation.title',
         active: 'evaluation',
         parentPath: '/application/:from/:id/:type',
         parentName: 'ApplicationDetail',

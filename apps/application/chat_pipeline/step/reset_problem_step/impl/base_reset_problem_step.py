@@ -13,7 +13,7 @@ from langchain_core.messages import HumanMessage
 
 from application.chat_pipeline.step.reset_problem_step.i_reset_problem_step import IResetProblemStep
 from application.models import ChatRecord
-from common.utils.split_model import flat_map
+from ingestion.chunker import flat_map
 from models_provider.tools import get_model_instance_by_model_workspace_id
 
 prompt = _(

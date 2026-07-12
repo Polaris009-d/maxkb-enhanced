@@ -1,467 +1,234 @@
-# MaxKB 二次开发修改清单
+# MaxKB v2 — 企业级 RAG 知识库平台
 
-> 基于 MaxKB v2.0.0，新增语义缓存、BM25混合检索、Reranker重排序、WebSocket索引进度、RAGAS评测面板、百度OCR、权限过滤、表格提取、版本管理、Benchmark评测脚本等能力。共计 20+ 新文件，16+ 修改文件，~2500 行代码。
+基于 MaxKB v2.0.0 深度二次开发，全面增强 RAG 管线，补全生产级 PDF 处理、权限管控、检索优化、实时反馈能力。
 
 ---
 
-## 系统架构
+## 架构总览
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    前端 (Vue 3 + Vite)                         │
-│         管理后台 :3000/admin    聊天界面 :3001/chat             │
-│    WebSocket 实时进度 | ECharts 评测面板 | SSE 流式对话         │
-└──────────────────────────┬───────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                    前端 (Vue 3 + Vite)                      │
+│         管理后台 :3000/admin    聊天界面 :3001/chat          │
+│    WebSocket 实时进度 | ECharts 评测 | SSE 流式对话          │
+└──────────────────────────┬─────────────────────────────────┘
                            │ HTTP + WebSocket
-┌──────────────────────────▼───────────────────────────────────┐
-│                  Django API Server (:8080)                     │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │               Chat Pipeline (RAG全链路)                │    │
-│  │  问题优化 → 缓存查询 → 混合检索 → Reranker → LLM生成  │    │
-│  │     │           │          │          │         │       │    │
-│  │     │     Redis缓存   BM25+Dense  Cross-Encoder DeepSeek│    │
-│  │     │     cos≥0.92    +RRF融合    重排序    Stream    │    │
-│  └──────────────────────────────────────────────────────┘    │
-└──────┬──────────────────┬──────────────────┬─────────────────┘
-       │                  │                  │
-┌──────▼──────┐  ┌────────▼──────┐  ┌───────▼─────────┐  ┌──────────────┐
-│ PostgreSQL   │  │    Redis      │  │   DeepSeek API   │  │ 本地模型服务   │
-│ + pgvector   │  │  缓存+队列     │  │   (LLM 对话)     │  │ :11636       │
-│ 文档/段落/向量│  │  WS Channel   │  │                  │  │ Embedding推理 │
-└──────┬──────┘  └────────┬──────┘  └─────────────────┘  └──────┬───────┘
-       │                  │                                     │
-┌──────▼──────────────────▼─────────────────────────────────────▼──────┐
-│                          Celery Worker                                │
-│  文档解析(OCR+表格) → 切片 → 调用本地模型 Embedding → 向量入库 → WS推送 │
-└──────────────────────────────────────────────────────────────────────┘
-┌────────────────────────────────┐
-│       RAGAS 评测 (定时)         │
-│  Faithfulness + AnswerRelevancy │
-│  → ECharts 趋势面板             │
-└────────────────────────────────┘
+┌──────────────────────────▼─────────────────────────────────┐
+│                 Django API Server (:8080)                    │
+│  ┌──────────────────────────────────────────────────┐      │
+│  │         RAG Pipeline (rag/)                        │      │
+│  │  问题优化 → 缓存查询 → 混合检索 → Reranker → LLM   │      │
+│  └──────────────────────────────────────────────────┘      │
+│  ┌────────────────────┐  ┌──────────────────────────┐     │
+│  │  Document Ingestion │  │  Multi-Strategy Retrieval │     │
+│  │  (ingestion/)       │  │  (retrieval/)             │     │
+│  │  Parse→OCR→Extract   │  │  Vector|Keyword|Hybrid    │     │
+│  │  →Chunk→Embed       │  │  + Reranker              │     │
+│  └────────────────────┘  └──────────────────────────┘     │
+│  ┌────────────────────┐  ┌──────────────────────────┐     │
+│  │  Event Bus          │  │  Domain Models            │     │
+│  │  (events/)          │  │  (domain/)                │     │
+│  │  publish/subscribe   │  │  Pure Python, no ORM      │     │
+│  └────────────────────┘  └──────────────────────────┘     │
+└──────┬───────────────┬──────────────┬──────────────────────┘
+       │               │              │
+┌──────▼──────┐ ┌──────▼──────┐ ┌─────▼──────────┐ ┌──────────┐
+│ PostgreSQL   │ │   Redis     │ │  DeepSeek API   │ │ 本地模型  │
+│ + pgvector   │ │  缓存/队列   │ │  (LLM 对话)    │ │ :11636  │
+└──────┬──────┘ └──────┬──────┘ └────────────────┘ └────┬─────┘
+       │               │                               │
+┌──────▼───────────────▼───────────────────────────────▼─────┐
+│                     Worker (Celery)                         │
+│  文档解析 → 切片 → Embedding → 向量入库 → WS 推送进度       │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Benchmark 评测结果（实测）
+## 分层架构
 
-> 测试环境：Windows 11 / Python 3.11 / PostgreSQL 17+pgvector / shibing624/text2vec-base-chinese (768d)
-> 测试数据：太原理工大学学生手册（132段，1528条向量），15 道校园场景问答
+```
+apps/
+├── domain/          领域模型 (纯 Python dataclass)
+│   ├── document.py      ParsedDocument, Chunk, DocumentStatus
+│   ├── embedding.py     SearchQuery, SearchHit, EmbeddedChunk
+│   └── conversation.py  Message, Question, Answer, ChatContext
+│
+├── events/          事件总线 (Django signal 驱动)
+│   ├── event_types.py   7 种领域事件
+│   ├── bus.py           EventBus.publish/subscribe
+│   └── handlers.py      默认处理器
+│
+├── ingestion/       文档处理流水线
+│   ├── parser/pdf.py          PDF 解析 (pypdf→pdfplumber→OCR)
+│   ├── ocr/baidu.py           百度 OCR API
+│   ├── extractor/table.py     PDF 表格提取
+│   ├── chunker.py             智能分段
+│   └── services/pipeline.py   流水线编排
+│
+├── retrieval/       多策略检索
+│   ├── vector/pgvector.py     EmbeddingSearch/KeywordsSearch/BlendSearch/HybridSearch
+│   ├── reranker.py            Cross-Encoder + embedding fallback
+│   └── services/search_service.py  统一检索接口
+│
+├── rag/             RAG 管线
+│   ├── pipeline.py            PipelineManage 编排器
+│   └── services/chat_service.py  聊天服务
+│
+├── worker/          异步任务
+│   ├── __init__.py            Celery app
+│   ├── heartbeat.py           心跳检测
+│   └── signal_handler.py      信号处理
+│
+├── knowledge/       知识库 (Document, Paragraph, Embedding 模型)
+├── application/     智能体/应用 (Chat, Evaluation 模型)
+├── common/          公共模块 (认证/中间件/缓存/工具)
+└── maxkb/           Django 项目配置
+```
+
+---
+
+## 核心功能
+
+### RAG 全链路
+
+```
+用户问题
+  │
+  ├── ResetProblemStep      问题优化 (可选)
+  ├── SearchDatasetStep     多策略检索
+  │   ├── EmbeddingSearch   pgvector 余弦相似度
+  │   ├── KeywordsSearch    PostgreSQL ts_rank 全文检索
+  │   ├── BlendSearch       向量+关键词融合
+  │   ├── HybridSearch      RRF 融合 (k=60)
+  │   └── RerankerManager   Cross-Encoder 重排序 Top-20→Top-5
+  ├── PermissionFilter      文档级权限过滤
+  ├── GenerateHumanMessage  构建 Prompt
+  ├── SemanticCacheManager  Redis 语义缓存 (cos≥0.92)
+  └── ChatStep              LLM 流式生成 (DeepSeek)
+```
+
+### 文档处理流水线
+
+```
+PDF 上传
+  │
+  ├── pypdf 提取文本
+  ├── _has_cjk_encoding_issues()  检测 CJK 编码问题 → pdfplumber 回退
+  ├── is_ocr_needed()             检测扫描件 → 百度 OCR 回退
+  ├── TableExtractor              PDF 表格→JSON 存入 meta
+  ├── SplitModel.parse()          智能分段
+  └── Celery → 本地模型 Embedding → pgvector 入库 → WebSocket 推送
+```
 
 ### 检索策略对比
 
-| 模式 | Recall@10 | MRR | 平均延迟 | 说明 |
-|------|-----------|-----|---------|------|
-| embedding (纯向量) | 1.000 | 1.000 | 93ms | 余弦相似度搜索 |
-| keywords (关键词) | 0.933 | 0.933 | 104ms | ts_rank 全文检索 |
-| blend (向量+关键词) | 1.000 | 1.000 | 99ms | 直接加和融合 |
-| hybrid (RRF融合) | 1.000 | 1.000 | 102ms | **本次新增** RRF k=60 |
-
-### 语义缓存实测
-
-| 指标 | 冷启动（首次提问） | 热启动（重复提问） |
-|------|-------------------|-------------------|
-| 缓存命中率 | 0% | **100%**（15/15 全部命中） |
-| LLM API 调用 | 15 次 | **0 次**（全部走缓存） |
-| 缓存查询延迟 | — | 50.3ms |
-
-> 实测结论：重复提问场景下，LLM 调用降为 0，响应延迟从 LLM 的秒级降至缓存查寻的 50.3ms。
-
-### WebSocket 进度反馈
-
-| 指标 | 原方式 | 改进后 |
-|------|--------|--------|
-| 进度更新方式 | 6s 前端轮询 | WebSocket 实时推送 |
-| 反馈粒度 | 仅成功/失败 | 4 阶段：解析→切片→嵌入→入库 |
-| 延迟感知 | 3-9s | <500ms |
+| 模式 | 技术 | 精度 | 适用场景 |
+|------|------|------|----------|
+| `embedding` | pgvector 余弦相似度 | 语义匹配 | 自然语言问答 |
+| `keywords` | ts_rank 全文检索 | 精确匹配 | 条款编号/产品型号 |
+| `blend` | 向量+关键词直接加和 | 兼顾 | 通用 |
+| `hybrid` | RRF 融合 | 最优 | 生产推荐 |
 
 ---
 
----
+## 快速启动
 
-## 项目文件结构
+### 前置依赖
 
-(*) 标记为本次新增或修改的文件
+- PostgreSQL 17 + pgvector 扩展
+- Redis 7
+- Python 3.11
+- Node.js 18+
 
-```
-MaxKB-v2/
-|-- .env                          (*) 开发环境配置
-|-- main.py                       (*) 项目入口
-|-- README.md                     (*) 本文件
-|-- benchmark/                    (*) 新增：评测脚本
-|   |-- run_benchmark.py
-|-- apps/                         # Django 后端
-|   |-- config.yml
-|   |-- manage.py
-|   |-- common/                   # 公共模块
-|   |   |-- semantic_cache/       (*) 语义缓存
-|   |   |   |-- cache_manager.py
-|   |   |-- reranker/             (*) Reranker 重排序
-|   |   |   |-- reranker.py
-|   |   |-- websocket/            (*) WebSocket 进度
-|   |   |   |-- consumers.py
-|   |   |   |-- routing.py
-|   |   |   |-- progress_publisher.py
-|   |   |-- event/
-|   |   |   |-- listener_manage.py (*) 嵌入进度推送
-|   |   |-- utils/
-|   |       |-- tool_code.py      (*) Windows 兼容修复
-|   |       |-- ocr_util.py       (*) 百度 OCR 扫描件识别
-|   |       |-- permission_filter.py (*) 文档级权限过滤
-|   |       |-- table_extractor.py (*) PDF 表格结构化提取
-|   |-- maxkb/                    # Django 项目配置
-|   |   |-- asgi.py               (*) Channels WebSocket
-|   |   |-- settings/             (*) Channels 配置
-|   |   |-- urls/
-|   |-- application/              # 应用/智能体
-|   |   |-- chat_pipeline/        # RAG 管线
-|   |   |   |-- step/
-|   |   |       |-- search_dataset_step/ (*) Reranker 集成
-|   |   |       |-- chat_step/         (*) 语义缓存集成
-|   |   |-- models/
-|   |   |   |-- evaluation.py     (*) RAGAS 评测模型
-|   |   |-- serializers/
-|   |   |   |-- application.py    (*) 自动绑定 LLM
-|   |   |   |-- evaluation.py     (*) RAGAS 评测
-|   |   |-- views/
-|   |   |   |-- evaluation.py     (*) 评测 API
-|   |   |-- task/
-|   |   |   |-- evaluation.py     (*) 评测 Celery 任务
-|   |   |-- urls.py               (*) 评测路由
-|   |-- knowledge/                # 知识库
-|   |   |-- apps.py               (*) 注册 signals
-|   |   |-- signals.py            (*) 模型升级自动重 embedding
-|   |   |-- document_version.py   (*) PDF 版本管理
-|   |   |-- models/
-|   |   |   |-- knowledge.py      (*) hybrid 搜索模式
-|   |   |-- vector/
-|   |   |   |-- pg_vector.py      (*) HybridSearch 类
-|   |   |-- sql/                  # 搜索 SQL
-|   |-- chat/                     # 聊天接口
-|   |-- models_provider/          # 模型供应商
-|   |-- tools/                    # 工具库
-|   |-- ops/                      # Celery
-|   |   |-- celery/
-|   |       |-- heartbeat.py      (*) Windows 兼容
-|   |-- users/                    # 用户管理
-|-- ui/                           # Vue 3 前端
-|   |-- vite.config.ts            (*) SPA 路由 + WS 代理
-|   |-- chat.html                 # 聊天入口
-|   |-- admin.html                # 管理后台入口
-|   |-- env/                      # 环境变量
-|   |-- src/
-|       |-- api/application/
-|       |   |-- evaluation.ts     (*) 评测 API 客户端
-|       |-- views/
-|       |   |-- application/
-|       |   |   |-- ApplicationSetting.vue (*) AI 生成+自动模型
-|       |   |   |-- component/GeneratePromptDialog.vue
-|       |   |-- application-overview/ (*) 对话端口修正
-|       |   |-- application-workflow/ (*) 对话端口修正
-|       |   |-- application-evaluation/ (*) 评测面板
-|       |   |-- document/
-|       |       |-- index.vue     (*) WebSocket 替换轮询
-|       |-- stores/modules/
-|       |   |-- application.ts    (*) 对话端口修正
-|       |-- router/modules/
-|       |   |-- application-detail.ts (*) 评测路由
-|       |-- request/              # HTTP 客户端
-|       |-- components/           # 全局组件
-|-- installer/                    # Docker 部署文件
-```
-
----
-
-## 一、BM25 混合检索（RRF 融合）
-
-### 修改文件
-
-| 文件 | 修改内容 |
-|------|----------|
-| `apps/knowledge/models/knowledge.py:316` | `SearchMode` 枚举新增 `hybrid = "hybrid"` |
-| `apps/knowledge/vector/pg_vector.py:349-415` | 新增 `HybridSearch(ISearch)` 类，RRF k=60 融合稠密+稀疏搜索结果，追加到 `search_handle_list` |
-
-### 原理
-同时运行 EmbeddingSearch（余弦距离）和 KeywordsSearch（PostgreSQL ts_rank），用 RRF 算法融合双路结果排序。解决纯向量检索对精确关键词不敏感的问题。
-
----
-
-## 二、Reranker 重排序
-
-### 新增文件
-
-| 文件 | 说明 |
-|------|------|
-| `apps/common/reranker/__init__.py` | 包标记 |
-| `apps/common/reranker/reranker.py` | `RerankerManager`：Cross-Encoder（BAAI/bge-reranker-base）精排 + embedding 相似度回退 |
-
-### 修改文件
-
-| 文件 | 修改内容 |
-|------|----------|
-| `apps/application/chat_pipeline/step/search_dataset_step/impl/base_search_dataset_step.py:78,85-138` | 检索后插入 `_apply_reranker()`，取 Top-20 → Cross-Encoder 重打分 → 返回 Top-5 |
-
-### 原理
-检索阶段返回 Top-20 候选段落，用 Cross-Encoder 模型对每个 (query, paragraph) 对做精细语义打分，重排后取 Top-5 送入 LLM。Cross-Encoder 比双塔 Embedding 的余弦相似度更精准。若模型不可用则回退到 embedding 相似度排序。
-
-```
-检索 Top-20 → Cross-Encoder 重打分 → 取 Top-5 → LLM 生成
-```
-
----
-
-## 三、语义缓存层
-
-### 新增文件
-
-| 文件 | 说明 |
-|------|------|
-| `apps/common/semantic_cache/__init__.py` | 包标记 |
-| `apps/common/semantic_cache/cache_manager.py` | 核心类 `SemanticCacheManager`：`search()` 查询缓存、`cache()` 写入缓存、`invalidate()` 清空缓存、`cosine_similarity()` 余弦相似度计算 |
-
-### 修改文件
-
-| 文件 | 修改内容 |
-|------|----------|
-| `apps/application/chat_pipeline/step/search_dataset_step/impl/base_search_dataset_step.py:68` | 将 embedding_model 存入 `manage.context['_embedding_model']` |
-| `apps/application/chat_pipeline/step/chat_step/impl/base_chat_step.py:1,552-566,186-208` | 导入 SemanticCacheManager；LLM调用前插入缓存查询；流输出完成后回写缓存 |
-
-### 原理
-在 ChatStep 的 LLM 调用前，用问题 embedding 在 Redis 中搜索余弦相似度 ≥0.92 的缓存答案。命中直接返回，未命中则调用 LLM 后将结果缓存。实测 15 道题重复提问，热启动缓存命中率 100%，LLM 调用降为 0，缓存查询延迟 50.3ms。
-
-### Redis 数据结构
-```
-semantic_cache:{app_id}:{md5_hash}  → Hash {embedding, answer_text, message_tokens, answer_tokens, problem_text}
-semantic_cache:index:{app_id}       → Set of hash_ids
-TTL: 86400s (24小时)
-```
-
----
-
-## 四、WebSocket 索引进度
-
-### 新增依赖
-```
-channels==4.3.2, channels-redis==4.3.0, msgpack==1.2.1
-```
-
-### 新增文件
-
-| 文件 | 说明 |
-|------|------|
-| `apps/common/websocket/__init__.py` | 包标记 |
-| `apps/common/websocket/consumers.py` | `DocumentProgressConsumer`：加入 `document_progress_{id}` group，转发进度到 WebSocket 客户端 |
-| `apps/common/websocket/routing.py` | WS URL 路由：`ws/document/<id>/progress/` |
-| `apps/common/websocket/progress_publisher.py` | `IndexProgressPublisher.publish_progress()` 通过 Channel Layer 发布进度消息 |
-
-### 修改文件
-
-| 文件 | 修改内容 |
-|------|----------|
-| `apps/maxkb/asgi.py` | 重写为 `ProtocolTypeRouter`（HTTP + WebSocket），添加 Windows asyncio 兼容 |
-| `apps/maxkb/settings/base/web.py:30,133-148` | INSTALLED_APPS 添加 `channels`；新增 `CHANNEL_LAYERS`（Redis 后端）和 `ASGI_APPLICATION` 配置 |
-| `apps/common/event/listener_manage.py:43,381,411,122-152` | 导入 `IndexProgressPublisher`；在 `embedding_by_document()` 和 `embedding_by_paragraph_data_list()` 中插入进度推送 |
-| `ui/vite.config.ts:38-48` | 代理规则添加 `ws: true`，新增 `/ws` 代理 |
-| `ui/src/views/document/index.vue:917,1033,1179-1215` | 导入 `socket`；新增 `initWsConnection()` 连接 WebSocket，失败回退轮询 |
-
-### 原理
-用 Django Channels（Redis 后端）替换前端 6 秒轮询。Celery 任务在文档索引的 解析→切片→嵌入→入库 四阶段实时推送 WebSocket 消息，前端即时更新进度。
-
----
-
-## 五、RAGAS 评测面板
-
-### 新增文件
-
-| 文件 | 说明 |
-|------|------|
-| `apps/application/models/evaluation.py` | `EvaluationConfig`（评测配置）和 `EvaluationResult`（评测结果）两个 Django Model |
-| `apps/application/serializers/evaluation.py` | DRF 序列化器：配置 CRUD、结果列表、统计聚合 |
-| `apps/application/views/evaluation.py` | 5 个 API View：配置 CRUD、手动触发、结果分页查询、统计仪表盘 |
-| `apps/application/task/evaluation.py` | Celery 任务 `run_evaluation()`：LLM-as-judge 计算 Faithfulness + embedding 相似度计算 AnswerRelevancy |
-| `ui/src/api/application/evaluation.ts` | 前端 API 客户端 |
-| `ui/src/views/application-evaluation/index.vue` | 评测面板主页：统计卡片 + ECharts 趋势图 + 配置/结果表格 |
-| `ui/src/views/application-evaluation/component/EvaluationFormDialog.vue` | 配置创建/编辑对话框 |
-
-### 修改文件
-
-| 文件 | 修改内容 |
-|------|----------|
-| `apps/application/urls.py:47-52` | 添加 5 条评测 API 路由 |
-| `apps/application/views/__init__.py:17` | 导入 evaluation 视图 |
-| `ui/src/router/modules/application-detail.ts:245-257` | 添加 `/evaluation` 子路由 |
-
-### 原理
-自实现轻量级 RAGAS（不依赖 ragas 包）：
-- **Faithfulness**：LLM-as-judge，判断答案是否忠于上下文，输出 0-1 分数
-- **AnswerRelevancy**：问题 embedding 与答案各句 embedding 的余弦相似度均值
-
-支持手动触发或 CRON 定时执行，结果用 ECharts 折线图展示趋势。
-
-### API 端点
-```
-GET    /admin/api/workspace/{wid}/application/{aid}/evaluation/config     # 配置列表
-POST   /admin/api/workspace/{wid}/application/{aid}/evaluation/config     # 创建配置
-PUT    /admin/api/workspace/{wid}/application/{aid}/evaluation/config/{cid}  # 更新配置
-DELETE /admin/api/workspace/{wid}/application/{aid}/evaluation/config/{cid}  # 删除配置
-POST   /admin/api/workspace/{wid}/application/{aid}/evaluation/config/{cid}/trigger  # 手动触发
-GET    /admin/api/workspace/{wid}/application/{aid}/evaluation/result      # 查询结果
-GET    /admin/api/workspace/{wid}/application/{aid}/evaluation/stats       # 统计仪表盘
-```
-
----
-
-## 六、Benchmark 评测脚本
-
-### 新增文件
-
-| 文件 | 说明 |
-|------|------|
-| `benchmark/__init__.py` | 包标记 |
-| `benchmark/run_benchmark.py` | 完整 RAG 评测脚本：Recall@10 / MRR / 延迟 / 缓存命中率 / 搜索模式对比 |
-
-### 运行方式
-```bash
-cd D:\落地项目\MaxKB-v2\apps
-python ../benchmark/run_benchmark.py
-```
-
-### 评测维度
-- **Recall@10**：Top-10 结果中包含相关段落的查询比例
-- **MRR**：第一个相关结果排名的倒数均值
-- **搜索延迟**：向量检索 + Reranker 的端到端耗时
-- **缓存命中率**：语义缓存的首次和二次命中统计
-- **模式对比**：embedding vs keywords vs blend vs hybrid 四模式横向对比
-
-### 输出
-- 终端打印所有指标的详细对比表格
-- 生成 `benchmark/benchmark_results.json` 供 CI 集成
-
----
-
-## 七、生产级增强
-
-### 7.1 PDF 扫描件 OCR 识别
-
-| 文件 | 说明 |
-|------|------|
-| `apps/common/utils/ocr_util.py` | 百度 OCR API 封装：token 管理、图片识别、PDF 逐页提取 |
-| `apps/common/handle/impl/text/pdf_split_handle.py` | 集成 OCR 回退：纯文本提取失败时自动调用 OCR |
-
-### 7.2 文档级权限过滤
-
-| 文件 | 说明 |
-|------|------|
-| `apps/common/utils/permission_filter.py` | `PermissionFilter`：按 user_id + role 过滤搜索结果，admin 全量 / 普通用户仅自己和公共文档 |
-
-### 7.3 PDF 表格结构化提取
-
-| 文件 | 说明 |
-|------|------|
-| `apps/common/utils/table_extractor.py` | pdfplumber 提取表格为 JSON，存入 paragraph.meta，检索时可返回结构化数据 |
-
-### 7.4 模型升级自动重 embedding
-
-| 文件 | 说明 |
-|------|------|
-| `apps/knowledge/signals.py` | Django 信号：Knowledge.embedding_model 变更时，自动标记所有关联段落为 PENDING 并触发批量重向量化 |
-| `apps/knowledge/apps.py` | 注册 signals |
-
-### 7.5 PDF 版本管理
-
-| 文件 | 说明 |
-|------|------|
-| `apps/knowledge/document_version.py` | `DocumentVersionManager`：基于 Document.meta JSON 字段的版本历史，保留最近 10 版 |
-
----
-
-## 八、环境适配（Windows）
-
-| 文件 | 修改内容 |
-|------|----------|
-| `apps/common/utils/tool_code.py:8-27` | `pwd`/`resource` 模块的 Windows 兼容桩（Unix 专有模块） |
-| `ui/vite.config.ts:100-116,76-80` | SPA 路由回退中间件（`/admin/*`→`admin.html`）；移除 Vite 自循环代理规则；WebSocket 代理 |
-| `.env` | 新建：`MAXKB_CONFIG_TYPE=ENV` + 数据库/Redis/Embedding 配置 |
-| `apps/ops/celery/heartbeat.py` | 修复 Windows 路径兼容（硬编码 Linux 路径 → `tempfile.gettempdir()`） |
-
-### 额外编译
-- **pgvector 0.7.2**：从 GitHub 下载源码，用 VS Build Tools 2022（MSVC）编译为 `vector.dll`，安装到 `D:\APP\PostgreSQL\lib\` 和 `share\extension\`
-
----
-
-## 文件统计
-
-| 类别 | 数量 |
-|------|------|
-| 新增文件 | 20+ |
-| 修改文件 | 16 |
-| 新增代码行 | ~2500 |
-
----
-
-## 启动方式
-
-**必须同时启动 5 个终端**：
+### 启动命令（5 个终端）
 
 ```bash
-# 终端 1：后端 API（端口 8080）
+# 终端 1：后端 API
 cd D:\落地项目\MaxKB-v2
-C:\Users\forev\AppData\Local\Programs\Python\Python311\python.exe main.py dev web
+python main.py dev web
 
-# 终端 2：Celery 异步任务（文档向量化）
+# 终端 2：Worker (异步任务)
 cd D:\落地项目\MaxKB-v2\apps
-C:\Users\forev\AppData\Local\Programs\Python\Python311\python.exe -m celery -A ops.celery:app worker -l info -P solo --concurrency=1 -n worker1
+python -m celery -A worker:app worker -l info -P solo --concurrency=1 -n worker1
 
-# 终端 3：本地模型服务（端口 11636，提供 Embedding）
+# 终端 3：本地模型服务 (Embedding)
 cd D:\落地项目\MaxKB-v2
-C:\Users\forev\AppData\Local\Programs\Python\Python311\python.exe main.py dev local_model
+python main.py dev local_model
 
-# 终端 4：管理后台前端（端口 3000，热更新）
+# 终端 4：管理后台
 cd D:\落地项目\MaxKB-v2\ui
 npm run dev
 
-# 终端 5：聊天界面前端（端口 3001，热更新）
+# 终端 5：聊天界面
 cd D:\落地项目\MaxKB-v2\ui
 npm run chat
 ```
 
-> **重要**：
-> - 如果文档索引一直"排队中"，检查终端 2（Celery）和终端 3（本地模型）是否都在运行
-> - 终端 5 是聊天对话的入口，端口 3001，不启动则无法打开聊天页面
+### 访问地址
 
-- 管理后台：`http://localhost:3000/admin`，账号 `admin` / `LaLaLa123%%%`
+- 管理后台：`http://localhost:3000/admin` 账号 `admin` / `LaLaLa123%%%`
 - 聊天页面：`http://localhost:3001/chat/{access_token}`
 
 ---
 
----
-
-## 生产就绪对照表
-
-| 生产需求 | 状态 | 解决方案 | 实现文件 |
-|----------|------|---------|---------|
-| PDF解析差 | ✅ | 百度 OCR API 回退，扫描件自动识别 | `common/utils/ocr_util.py` |
-| 上传慢 | ✅ | Celery 异步任务队列 + 批量处理 | `knowledge/task/embedding.py` |
-| 文档太大 | ✅ | RecursiveCharacterTextSplitter + page_desc 分页 | `common/handle/impl/text/` |
-| 权限泄露 | ✅ | 文档级 user_id 权限过滤器 | `common/utils/permission_filter.py` |
-| 模型升级 | ✅ | embedding_model 变更自动触发重向量化 | `knowledge/signals.py` |
-| PDF更新 | ✅ | meta JSON 版本历史管理（保留 10 版） | `knowledge/document_version.py` |
-| 表格丢失 | ✅ | pdfplumber 提取结构化表格存入 meta | `common/utils/table_extractor.py` |
-| 搜索效果差 | ✅ | HybridSearch(BM25+RRF) + Reranker(Cross-Encoder) | `knowledge/vector/pg_vector.py` |
-
----
-
-## Docker 部署（已部署在虚拟机）
+## 环境变量 (.env)
 
 ```bash
-# 1. SSH 连接虚拟机
-ssh docker@192.168.58.133
-
-# 2. 启动容器
-docker start maxkb
-
-# 3. 访问
-# http://192.168.58.133:8080/admin   账号 admin / 密码 LaLaLa123%%%
+MAXKB_CONFIG_TYPE=ENV
+MAXKB_DB_NAME=maxkb
+MAXKB_DB_HOST=127.0.0.1
+MAXKB_DB_PORT=5432
+MAXKB_DB_USER=root
+MAXKB_DB_PASSWORD=123456
+MAXKB_DB_ENGINE=dj_db_conn_pool.backends.postgresql
+MAXKB_REDIS_HOST=127.0.0.1
+MAXKB_REDIS_PORT=6379
+MAXKB_REDIS_PASSWORD=
+MAXKB_REDIS_DB=0
+MAXKB_EMBEDDING_MODEL_PATH=D:/APP/models/embedding
+MAXKB_EMBEDDING_MODEL_NAME=D:/APP/models/embedding/shibing624_text2vec-base-chinese
+MAXKB_DEBUG=true
+MAXKB_TIME_ZONE=Asia/Shanghai
+MAXKB_BAIDU_OCR_API_KEY=***
+MAXKB_BAIDU_OCR_SECRET_KEY=***
 ```
 
-> 容器重启后数据不丢失，已用 `--restart=always` 配置。若需重建容器，Dockerfile 位于 `installer/Dockerfile-custom`。
+
+
+
+
+---
+
+## 已知限制
+
+| 限制 | 说明 |
+|------|------|
+| DeepSeek V4 Pro 推理泄漏 | reasoning 模式下可能在回答中暴露 prompt 模板 |
+| 关键词检索阈值 | ts_rank_cd 分数与 cosine 不在同一量级，共用阈值需调低 |
+| Windows 开发环境 | `pwd`/`resource` 模块需要兼容桩 |
+| pgvector 扩展 | 需要手动编译 MSVC 版本安装到 PostgreSQL |
+
+---
+
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 后端框架 | Django 4.2 + DRF 3.17 |
+| 异步任务 | Celery 5 + Redis |
+| 实时通信 | Django Channels 4 + WebSocket |
+| 向量数据库 | PostgreSQL + pgvector (HNSW) |
+| 全文检索 | PostgreSQL tsvector/tsquery + jieba |
+| 缓存 | Redis (django-redis) |
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Element Plus |
+| LLM | DeepSeek V4 Pro (API) |
+| Embedding | shibing624/text2vec-base-chinese (本地 768d) |
+| OCR | 百度 OCR API |
+| PDF | pypdf + pdfplumber |
+
+---
+
+## 许可
+
+基于 MaxKB 开源项目二次开发，遵循原项目许可协议。

@@ -64,7 +64,7 @@ from users.serializers.user import is_workspace_manage, is_workspace_manage_perm
 
 from application.flow.common import Workflow
 from application.long_term_memory import schedule_extract_long_term_memory
-from application.models.application import Application, ApplicationFolder, ApplicationTypeChoices, ApplicationVersion
+from application.models.application import Application, ApplicationFolder, ApplicationKnowledgeMapping, ApplicationTypeChoices, ApplicationVersion
 from application.models.application_access_token import ApplicationAccessToken
 from application.serializers.common import update_resource_mapping_by_application
 
@@ -951,6 +951,8 @@ class ApplicationOperateSerializer(serializers.Serializer):
         application_id = self.data.get("application_id")
         QuerySet(ApplicationVersion).filter(application_id=application_id).delete()
         QuerySet(ResourceMapping).filter(Q(target_id=application_id) | Q(source_id=application_id)).delete()
+        from application.models.application import ApplicationKnowledgeMapping
+        QuerySet(ApplicationKnowledgeMapping).filter(application_id=application_id).delete()
         QuerySet(WorkspaceUserResourcePermission).filter(target=application_id).delete()
         QuerySet(Application).filter(id=application_id).delete()
         trigger_ids = list(

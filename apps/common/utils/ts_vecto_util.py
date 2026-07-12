@@ -114,5 +114,12 @@ def to_ts_vector(text: str, user_words: List[str] = None):
 def to_query(text: str, user_words: List[str] = None):
     tokenizer = _build_tokenizer(user_words) if user_words else jieba
     extract_tags = tokenizer.lcut(text, cut_all=False)
+    # Filter out tokens that are only punctuation/special characters.
+    # PostgreSQL tsquery rejects bare symbols like （〔〕）？ as syntax errors.
+    # Keep only tokens containing at least one CJK ideograph, letter, or digit.
+    extract_tags = [
+        t for t in extract_tags
+        if t.strip() and re.search(r'[\w一-鿿]', t)
+    ]
     result = "|".join(extract_tags)
     return result

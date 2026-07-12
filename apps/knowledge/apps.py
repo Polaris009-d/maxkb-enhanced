@@ -6,4 +6,7 @@ class KnowledgeConfig(AppConfig):
     name = 'knowledge'
 
     def ready(self):
-        import knowledge.signals  # noqa: register signal handlers
+        try:
+            import knowledge.signals  # noqa: register signal handlers
+        except ImportError:
+            pass

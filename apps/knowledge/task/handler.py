@@ -6,7 +6,7 @@ import traceback
 
 from common.utils.fork import ChildLink, Fork
 from common.utils.logger import maxkb_logger
-from common.utils.split_model import get_split_model
+from ingestion.chunker import get_split_model
 from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
 
