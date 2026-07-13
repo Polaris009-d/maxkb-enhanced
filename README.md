@@ -141,34 +141,52 @@ PDF 上传
 - Python 3.11
 - Node.js 18+
 
+### 快速安装依赖
+
+```bash
+# 安装 Python 依赖（需要 Python 3.11）
+cd D:\落地项目\MaxKB-v2
+uv sync --python 3.11
+
+# 安装前端依赖
+cd D:\落地项目\MaxKB-v2\ui
+npm install
+```
+
 ### 启动命令（5 个终端）
 
 ```bash
 # 终端 1：后端 API
-cd D:\落地项目\MaxKB-v2
+cd /d D:\落地项目\MaxKB-v2
+.venv\Scripts\activate
 python main.py dev web
 
 # 终端 2：Worker (异步任务)
-cd D:\落地项目\MaxKB-v2\apps
-python -m celery -A worker:app worker -l info -P solo --concurrency=1 -n worker1
+cd /d D:\落地项目\MaxKB-v2\apps
+..\.venv\Scripts\python.exe -m celery -A worker:app worker -l info -P solo --concurrency=1 -n worker1
 
 # 终端 3：本地模型服务 (Embedding)
-cd D:\落地项目\MaxKB-v2
+cd /d D:\落地项目\MaxKB-v2
+.venv\Scripts\activate
 python main.py dev local_model
 
 # 终端 4：管理后台
-cd D:\落地项目\MaxKB-v2\ui
+cd /d D:\落地项目\MaxKB-v2\ui
 npm run dev
 
 # 终端 5：聊天界面
-cd D:\落地项目\MaxKB-v2\ui
+cd /d D:\落地项目\MaxKB-v2\ui
 npm run chat
 ```
 
 ### 访问地址
 
-- 管理后台：`http://localhost:3000/admin` 账号 `admin` / `LaLaLa123%%%`
-- 聊天页面：`http://localhost:3001/chat/{access_token}`
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| Django API | `http://localhost:8080` | REST API（`/admin/api/...`） |
+| 管理后台 | `http://localhost:3000/admin` | 登录账号 `admin` / `LaLaLa123%%%` |
+| 聊天界面 | `http://localhost:3001/chat/{access_token}` | 通过应用发布获得 token |
+| Embedding 模型 | `http://localhost:11636` | 本地向量化服务 |
 
 ---
 
@@ -215,7 +233,7 @@ MAXKB_BAIDU_OCR_SECRET_KEY=***
 
 | 层级 | 技术 |
 |------|------|
-| 后端框架 | Django 4.2 + DRF 3.17 |
+| 后端框架 | Django 5.2 + DRF 3.17 |
 | 异步任务 | Celery 5 + Redis |
 | 实时通信 | Django Channels 4 + WebSocket |
 | 向量数据库 | PostgreSQL + pgvector (HNSW) |
