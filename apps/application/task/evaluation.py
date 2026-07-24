@@ -1,7 +1,13 @@
 # coding=utf-8
 """
 Celery task for running RAGAS-style evaluations on chat history.
+
+Metrics:
+  - faithfulness:      LLM-as-judge — does the answer stay true to context?
+  - answer_relevancy:  embedding cosine — is the answer relevant to the question?
+  - context_recall:    LLM-as-judge — does the retrieved context cover what's needed?
 """
+import re
 import logging
 from datetime import timedelta
 
@@ -43,7 +49,6 @@ def _compute_faithfulness(question: str, answer: str, contexts: list, chat_model
         response = chat_model.invoke([HumanMessage(content=prompt)])
         score_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
         # Extract the first float from the response
-        import re
         match = re.search(r"(\d+\.?\d*)", score_text)
         if match:
             return min(1.0, max(0.0, float(match.group(1))))
@@ -96,6 +101,43 @@ def _compute_answer_relevancy(question: str, answer: str, embedding_model) -> fl
     return 0.0
 
 
+def _compute_context_recall(question: str, answer: str, contexts: list, chat_model) -> float:
+    """Evaluate context recall: does the retrieved context contain enough info
+    to answer the question?
+
+    Uses LLM-as-judge. Returns a score between 0 and 1.
+    This measures *retrieval quality* rather than answer quality.
+    """
+    if not contexts or not question:
+        return 0.0
+
+    context_text = "\n\n".join([f"[{i+1}] {c[:500]}" for i, c in enumerate(contexts[:5])])
+    prompt = (
+        "You are evaluating the RETRIEVAL quality of a RAG system.\n\n"
+        f"Question: {question}\n\n"
+        f"Retrieved Context (top passages from knowledge base):\n{context_text}\n\n"
+        f"Generated Answer (for reference): {answer[:500]}\n\n"
+        "Rate the CONTEXT RECALL on a scale of 0 to 1:\n"
+        "- 1.0: The retrieved context contains ALL key information needed to answer the question accurately.\n"
+        "- 0.7: Most key information is present, minor details may be missing.\n"
+        "- 0.5: Some relevant information was retrieved, but significant gaps exist.\n"
+        "- 0.3: Only tangentially related information was retrieved.\n"
+        "- 0.0: The retrieved context is completely irrelevant to the question.\n\n"
+        "Focus on whether the CONTEXT covers the key facts needed, NOT on answer quality.\n"
+        "Output ONLY a number between 0 and 1, nothing else."
+    )
+    try:
+        from langchain_core.messages import HumanMessage
+        response = chat_model.invoke([HumanMessage(content=prompt)])
+        score_text = response.content.strip() if hasattr(response, "content") else str(response).strip()
+        match = re.search(r"(\d+\.?\d*)", score_text)
+        if match:
+            return min(1.0, max(0.0, float(match.group(1))))
+    except Exception as e:
+        logger.warning(f"ContextRecall evaluation failed: {e}")
+    return 0.0
+
+
 @shared_task(name="run_evaluation", max_retries=2, default_retry_delay=60)
 def run_evaluation(config_id: str):
     """Celery task: run evaluation for a given config.
@@ -113,7 +155,7 @@ def run_evaluation(config_id: str):
         return
 
     application = config.application
-    metrics = config.metrics or ["faithfulness", "answer_relevancy"]
+    metrics = config.metrics or ["faithfulness", "answer_relevancy", "context_recall"]
     workspace_id = str(application.workspace_id)
 
     # Fetch recent chat records for this application
@@ -137,7 +179,7 @@ def run_evaluation(config_id: str):
     # Get evaluation models
     chat_model = None
     embedding_model = None
-    if "faithfulness" in metrics:
+    if "faithfulness" in metrics or "context_recall" in metrics:
         try:
             chat_model = get_model_instance_by_model_workspace_id(
                 application.model_id, workspace_id
@@ -194,12 +236,16 @@ def run_evaluation(config_id: str):
         # Compute scores
         faith_score = None
         ar_score = None
+        cr_score = None
 
         if "faithfulness" in metrics and chat_model:
             faith_score = _compute_faithfulness(question, answer, contexts, chat_model)
 
         if "answer_relevancy" in metrics and embedding_model:
             ar_score = _compute_answer_relevancy(question, answer, embedding_model)
+
+        if "context_recall" in metrics and chat_model:
+            cr_score = _compute_context_recall(question, answer, contexts, chat_model)
 
         result = EvaluationResult(
             evaluation_config=config,
@@ -209,6 +255,7 @@ def run_evaluation(config_id: str):
             contexts=contexts[:10],  # Keep max 10 contexts
             faithfulness_score=faith_score,
             answer_relevancy_score=ar_score,
+            context_recall_score=cr_score,
         )
         results.append(result)
 

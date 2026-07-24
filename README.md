@@ -130,6 +130,97 @@ PDF 上传
 | `blend` | 向量+关键词直接加和 | 兼顾 | 通用 |
 | `hybrid` | RRF 融合 | 最优 | 生产推荐 |
 
+### 评测体系
+
+> 环境：Windows 11, Python 3.11, PostgreSQL 17+pgvector, Redis 7, text2vec-base-chinese (CPU 推理)
+> 知识库：太原理工大学学生手册（132 段落，1528 条向量）
+> 测试集：50 条分层问题（easy:20 / medium:15 / hard:10 / adversarial:5），Bootstrap CI=95%, n=1000
+
+#### 离线 Benchmark（`benchmark/run_benchmark_win.py`）
+
+##### 1. 多策略检索对比
+
+| 指标 | embedding | keywords | blend | hybrid |
+|------|:---------:|:--------:|:-----:|:------:|
+| **Recall@3** | 0.960 | 0.800 | 0.920 | 0.940 |
+| **Recall@5** | **1.000** | 0.800 | 0.940 | 0.960 |
+| **Recall@10** | **1.000** | 0.800 | 0.960 | **1.000** |
+| **NDCG@5** | **0.963** | 0.777 | 0.928 | 0.948 |
+| **MRR** | **0.956** | 0.770 | 0.928 | 0.951 |
+| **平均延迟** | **80ms** | 112ms | 81ms | 104ms |
+
+`embedding` 模式以 100% Recall@5 和 80ms 平均延迟双项最优；`keywords` 独立检索最弱（80% Recall@5），应与向量检索融合使用。
+
+##### 2. 检索延迟分布
+
+| 模式 | P50 | P95 | P99 | 平均 |
+|------|:---:|:---:|:---:|:---:|
+| embedding | 78.3ms | 102.1ms | 116.5ms | 79.7ms |
+| keywords | 99.8ms | 199.1ms | 254.9ms | 111.5ms |
+| blend | 82.2ms | 108.0ms | 132.4ms | 81.1ms |
+| hybrid | 98.7ms | 163.3ms | 228.8ms | 103.9ms |
+
+`keywords` 和 `hybrid` 的 P99 延迟显著偏高，源于 PostgreSQL ts_rank 全文检索在大结果集上的计算开销。
+
+##### 3. Reranker A/B 对比（Cross-Encoder）
+
+| 配置 | NDCG@5 | 95% CI |
+|------|:------:|:------:|
+| 不使用 Reranker | **0.975** | [0.925, 1.000] |
+| 使用 Reranker (bge-reranker-v2-m3) | 0.944 | [0.858, 1.000] |
+
+在 recall 已达上限的数据集上，Reranker 未能带来增益（-3.2%）。Reranker 更适合检索结果噪音大、需要二次精排的场景。
+
+##### 4. 语义缓存命中率与延迟
+
+| 阶段 | 命中率 | 平均延迟 | P50 | P95 | P99 |
+|------|:-----:|:-------:|:---:|:---:|:---:|
+| **冷启动** (1st pass) | 0.0% | 95.6ms | 94.6ms | 137.3ms | 164.0ms |
+| **热启动** (2nd pass) | **100.0%** | 133.8ms | 135.7ms | 165.9ms | 170.3ms |
+
+热启动可避免 **100%** 的 LLM 调用（50/50 查询走缓存）。热启动延迟略高于冷启动（+40%），原因是语义缓存需对每条查询计算 embedding（CPU）并与缓存向量比对余弦相似度。
+
+##### 5. 融合策略增益
+
+| 对比 | R@5 增益 |
+|------|:-------:|
+| Blend vs Keywords | **+17.5%** |
+| Hybrid vs Embedding | -4.0% |
+
+`blend` 相比纯关键词检索提升显著。`hybrid`（RRF）在召回已达 100% 时对比纯 embedding 无提升空间，但在召回不满的场景下通常表现更好。
+
+运行命令：
+
+```bash
+cd D:\落地项目\MaxKB-v2
+.venv\Scripts\python.exe benchmark\run_benchmark_win.py
+```
+
+#### 在线评测（`application/task/evaluation.py`）
+
+基于 RAGAS 框架，通过 Celery 定时任务自动评估生产对话质量：
+
+| 指标 | 方法 | 评估对象 |
+|------|------|----------|
+| Faithfulness | LLM-as-judge | 答案是否忠实于检索上下文 |
+| Answer Relevancy | Embedding 余弦相似度 | 答案是否切题 |
+| Context Recall | LLM-as-judge | 检索上下文是否覆盖回答所需信息 |
+
+每日自动评估最近 24 小时对话记录（最多 50 条），结果存入 `evaluation_result` 表。
+
+#### 评测样本挖掘（`benchmark/mine_eval_samples.py`）
+
+从历史 ChatRecord 中自动提取评测样本：
+
+```bash
+# 从生产对话挖掘评测样本
+python benchmark/mine_eval_samples.py --limit 200 --output eval_dataset.json
+```
+
+- 优先采集用户点赞（thumbs up）的高质量记录
+- 自动提取关键词（jieba TF-IDF）、估算难度、分类别
+- 输出 JSON 可直接补充到 Benchmark 测试集中
+
 ---
 
 ## 快速启动

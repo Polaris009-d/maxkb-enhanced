@@ -1,6 +1,6 @@
 # coding=utf-8
 """
-Evaluation models for RAGAS-style metrics (Faithfulness, AnswerRelevancy).
+Evaluation models for RAGAS-style metrics (Faithfulness, AnswerRelevancy, ContextRecall).
 """
 import uuid_utils.compat as uuid
 from django.db import models
@@ -37,6 +37,7 @@ class EvaluationResult(models.Model):
     contexts = models.JSONField(default=list, verbose_name="检索上下文")
     faithfulness_score = models.FloatField(null=True, blank=True, verbose_name="忠实度评分")
     answer_relevancy_score = models.FloatField(null=True, blank=True, verbose_name="答案相关性评分")
+    context_recall_score = models.FloatField(null=True, blank=True, verbose_name="上下文召回评分")
     run_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="评测时间")
 
     class Meta:

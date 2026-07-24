@@ -28,8 +28,8 @@ class LocalReranker(MaxKBBaseModel, BaseDocumentCompressor):
         self.model = model_name
         self.cache_dir = cache_dir
         self.model_kwargs = model_kwargs
-        self.client = AutoModelForSequenceClassification.from_pretrained(self.model, cache_dir=self.cache_dir)
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model, cache_dir=self.cache_dir)
+        self.client = AutoModelForSequenceClassification.from_pretrained(self.model, cache_dir=self.cache_dir, local_files_only=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model, cache_dir=self.cache_dir, local_files_only=True)
         self.client = self.client.to(self.model_kwargs.get('device', 'cpu'))
         self.client.eval()
 

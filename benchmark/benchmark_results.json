@@ -1,35 +1,254 @@
 {
   "kb": "太原理工大学学生手册",
-  "embedding_model": "42f63a3d-427e-11ef-b3ec-a8a1595801ab",
-  "queries": 15,
+  "embedding_model": "text2vec-base-chinese (local)",
+  "queries": 50,
+  "difficulty_distribution": {
+    "easy": 20,
+    "medium": 15,
+    "hard": 10,
+    "adversarial": 5
+  },
+  "category_distribution": {
+    "奖学金": 2,
+    "纪律处分": 4,
+    "助学金": 2,
+    "宿舍管理": 3,
+    "学籍管理": 5,
+    "勤工助学": 2,
+    "证件管理": 1,
+    "毕业论文": 2,
+    "学费": 2,
+    "校园生活": 3,
+    "学术规范": 3,
+    "日常管理": 1,
+    "升学": 2,
+    "教务": 2,
+    "实践": 1,
+    "综合": 10,
+    "不存在": 5
+  },
+  "bootstrap": {
+    "n_rounds": 1000,
+    "confidence": 0.95
+  },
   "search_results": {
     "embedding": {
-      "recall@10": 1.0,
-      "mrr": 1.0,
-      "avg_ms": 54.9
+      "recall@3": {
+        "mean": 0.96,
+        "ci_lower": 0.9,
+        "ci_upper": 1.0,
+        "ci_width": 0.1,
+        "n": 50
+      },
+      "recall@5": {
+        "mean": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "ci_width": 0.0,
+        "n": 50
+      },
+      "recall@10": {
+        "mean": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "ci_width": 0.0,
+        "n": 50
+      },
+      "ndcg@5": {
+        "mean": 0.9629,
+        "ci_lower": 0.9253,
+        "ci_upper": 0.9926,
+        "ci_width": 0.0673,
+        "n": 50
+      },
+      "mrr": {
+        "mean": 0.9557,
+        "ci_lower": 0.9023,
+        "ci_upper": 1.0,
+        "ci_width": 0.0977,
+        "n": 50
+      },
+      "avg_ms": 79.7
     },
     "keywords": {
-      "recall@10": 0.933,
-      "mrr": 0.933,
-      "avg_ms": 97.6
+      "recall@3": {
+        "mean": 0.8,
+        "ci_lower": 0.7,
+        "ci_upper": 0.9,
+        "ci_width": 0.2,
+        "n": 50
+      },
+      "recall@5": {
+        "mean": 0.8,
+        "ci_lower": 0.7,
+        "ci_upper": 0.9,
+        "ci_width": 0.2,
+        "n": 50
+      },
+      "recall@10": {
+        "mean": 0.8,
+        "ci_lower": 0.7,
+        "ci_upper": 0.9,
+        "ci_width": 0.2,
+        "n": 50
+      },
+      "ndcg@5": {
+        "mean": 0.7773,
+        "ci_lower": 0.6727,
+        "ci_upper": 0.8762,
+        "ci_width": 0.2035,
+        "n": 50
+      },
+      "mrr": {
+        "mean": 0.77,
+        "ci_lower": 0.6698,
+        "ci_upper": 0.87,
+        "ci_width": 0.2002,
+        "n": 50
+      },
+      "avg_ms": 111.5
     },
     "blend": {
-      "recall@10": 1.0,
-      "mrr": 1.0,
-      "avg_ms": 68.6
+      "recall@3": {
+        "mean": 0.92,
+        "ci_lower": 0.84,
+        "ci_upper": 0.98,
+        "ci_width": 0.14,
+        "n": 50
+      },
+      "recall@5": {
+        "mean": 0.94,
+        "ci_lower": 0.88,
+        "ci_upper": 1.0,
+        "ci_width": 0.12,
+        "n": 50
+      },
+      "recall@10": {
+        "mean": 0.96,
+        "ci_lower": 0.9,
+        "ci_upper": 1.0,
+        "ci_width": 0.1,
+        "n": 50
+      },
+      "ndcg@5": {
+        "mean": 0.9277,
+        "ci_lower": 0.8574,
+        "ci_upper": 0.9881,
+        "ci_width": 0.1306,
+        "n": 50
+      },
+      "mrr": {
+        "mean": 0.9279,
+        "ci_lower": 0.855,
+        "ci_upper": 0.985,
+        "ci_width": 0.13,
+        "n": 50
+      },
+      "avg_ms": 81.1
     },
     "hybrid": {
-      "recall@10": 1.0,
-      "mrr": 1.0,
-      "avg_ms": 64.8
+      "recall@3": {
+        "mean": 0.94,
+        "ci_lower": 0.86,
+        "ci_upper": 1.0,
+        "ci_width": 0.14,
+        "n": 50
+      },
+      "recall@5": {
+        "mean": 0.96,
+        "ci_lower": 0.9,
+        "ci_upper": 1.0,
+        "ci_width": 0.1,
+        "n": 50
+      },
+      "recall@10": {
+        "mean": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "ci_width": 0.0,
+        "n": 50
+      },
+      "ndcg@5": {
+        "mean": 0.9478,
+        "ci_lower": 0.8868,
+        "ci_upper": 0.9978,
+        "ci_width": 0.111,
+        "n": 50
+      },
+      "mrr": {
+        "mean": 0.9506,
+        "ci_lower": 0.8916,
+        "ci_upper": 1.0,
+        "ci_width": 0.1084,
+        "n": 50
+      },
+      "avg_ms": 103.9
+    }
+  },
+  "retrieval_latency_ms": {
+    "embedding": {
+      "avg": 79.7,
+      "p50": 78.3,
+      "p95": 102.1,
+      "p99": 116.5
+    },
+    "keywords": {
+      "avg": 111.5,
+      "p50": 99.8,
+      "p95": 199.1,
+      "p99": 254.9
+    },
+    "blend": {
+      "avg": 81.1,
+      "p50": 82.2,
+      "p95": 108.0,
+      "p99": 132.4
+    },
+    "hybrid": {
+      "avg": 103.9,
+      "p50": 98.7,
+      "p95": 163.3,
+      "p99": 228.8
+    }
+  },
+  "reranker_ab": {
+    "has_reranker": true,
+    "without_reranker": {
+      "mean": 0.9751,
+      "ci_lower": 0.9252,
+      "ci_upper": 1.0,
+      "ci_width": 0.0748,
+      "n": 20
+    },
+    "with_reranker": {
+      "mean": 0.9436,
+      "ci_lower": 0.8582,
+      "ci_upper": 1.0,
+      "ci_width": 0.1418,
+      "n": 20
     }
   },
   "cache": {
-    "cold_hits": 0,
-    "warm_hits": 15,
-    "total": 15,
-    "cold_rate": 0.0,
-    "warm_rate": 100.0,
-    "avg_lookup_ms": 50.3
+    "cold": {
+      "hits": 0,
+      "total": 50,
+      "hit_rate_pct": 0.0,
+      "avg_lookup_ms": 95.6,
+      "p50_ms": 94.6,
+      "p95_ms": 137.3,
+      "p99_ms": 164.0,
+      "llm_calls": 50
+    },
+    "warm": {
+      "hits": 50,
+      "total": 50,
+      "hit_rate_pct": 100.0,
+      "avg_lookup_ms": 133.8,
+      "p50_ms": 135.7,
+      "p95_ms": 165.9,
+      "p99_ms": 170.3,
+      "llm_calls_saved_pct": 100.0
+    },
+    "cold_to_warm_speedup_pct": -40.0
   }
 }
